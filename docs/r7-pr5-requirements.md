@@ -17,11 +17,11 @@ Scope: roadmap PR5 only — durable Effect identity, idempotency, terminal outco
 | R5-11 | Two concurrent completion writers cannot both authoritatively resolve one claimed Effect. | Effect row lock and state check; two-writer completion test. | VERIFIED |
 | R5-12 | Effect ownership cannot cross-bind an Execution to another Execution's Stage. | Composite Stage/Execution FK plus application ownership check; adversarial test. | VERIFIED |
 | R5-13 | Migration `0003_effect_ledger` is reversible and PR3/PR4 persistence/queue semantics remain green. | Full migration rollback/reapply test plus existing persistence and queue suites. | VERIFIED |
-| R5-14 | Strict TypeScript, package boundaries, text hygiene, secret scan, and runtime dependency audit pass. | GitHub Actions run `38974419026`, job `117220288024`. | VERIFIED |
-| R5-15 | Declared executable PR5 artifacts have reproducible SHA-256 closure and the exact final head passes hosted verification. | `scripts/hash-pr5-artifacts.mjs`, `docs/r7-pr5-manifest.sha256`, final-head CI. | PARTIAL — final manifest/head gate pending |
+| R5-14 | Strict TypeScript, package boundaries, text hygiene, secret scan, and runtime dependency audit pass. | GitHub Actions runs `38974419026` and `38975007765`. | VERIFIED |
+| R5-15 | Declared executable PR5 artifacts have reproducible SHA-256 closure and the manifest is enforced by the normal source gate. | `scripts/hash-pr5-artifacts.mjs`; `docs/r7-pr5-manifest.sha256`; run `38975007765`, job `117222217416`, head `c36af015608200f7a55c183abdffef548489ad35`. | VERIFIED |
 | R5-16 | Generic exactly-once delivery, connector-specific retry policy, and provider reconciliation are not claimed by PR5. | Architecture/effect-ledger documentation and PR scope. | N/A — explicitly outside PR5 |
 
-## Evidence already executed
+## Executed evidence
 
 First full hosted code run: `38974419026`, job `117220288024`, on head `dcfc2da89aa5200ccae0bc37947e3f964206d41a`.
 
@@ -35,8 +35,14 @@ Observed results:
 - PR4 queue/fencing regressions: PASS;
 - runtime dependency audit: PASS, zero vulnerabilities reported.
 
-No implementation defect was observed in that first complete hosted PR5 run. R7 does not manufacture a repair event where falsification did not find one.
+Manifest-generation run `38974899162` generated the 14 executable-artifact SHA-256 values from the repository verifier while repeating the same green source/PostgreSQL lanes.
 
-## Completion rule
+Manifest-enforced run `38975007765`, job `117222217416`, on head `c36af015608200f7a55c183abdffef548489ad35` then verified the committed manifest as part of `npm run verify` and passed the full source, PostgreSQL, and dependency-audit chain.
 
-PR5 may be promoted to **VERIFIED / MERGE-READY** only when R5-15 is VERIFIED on the exact final branch head. Any later change to an artifact covered by the manifest requires regenerating the manifest and rerunning the dependent hosted gates.
+No implementation defect was observed in the complete hosted PR5 falsification runs. R7 does not manufacture a repair event where falsification did not find one.
+
+## Promotion rule
+
+All declared PR5 requirements are closed. PR5 may be marked **VERIFIED / MERGE-READY** only if the current pull-request head also has a successful complete hosted run. Because closing documentation changes the branch SHA without changing executable artifacts, that final current-head run is recorded in PR metadata/body rather than by recursively editing this ledger after every successful documentation-only check.
+
+Any later change to an artifact covered by `docs/r7-pr5-manifest.sha256` must regenerate the manifest and rerun all dependent gates.
