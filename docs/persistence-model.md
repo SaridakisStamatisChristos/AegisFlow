@@ -2,7 +2,8 @@
 
 PostgreSQL is AegisFlow's reference durable storage and coordination substrate for
 V1. Persistence stores domain state; `@aegisflow/core` defines legal transitions;
-`@aegisflow/queue` composes those semantics with durable worker authority.
+`@aegisflow/queue` composes those semantics with durable worker authority; and
+`@aegisflow/effects` composes them with durable external-side-effect authority.
 
 Reference CI target: PostgreSQL 17.
 
@@ -27,7 +28,9 @@ timestamps.
 
 One logical Stage instance per Execution, enforced by
 `UNIQUE (execution_id, stage_id)`. Execution creation and initial Stage rows are
-atomic.
+atomic. PR5 also adds a redundant composite uniqueness constraint on
+`(id, execution_id)` so Effect rows can enforce Stage/Execution ownership with a
+composite foreign key.
 
 ### `attempts`
 
@@ -41,18 +44,36 @@ concurrent inserts a total persisted order.
 
 ### `claims`
 
-PR4 adds durable worker authority. Each Claim is permanently tied to one Attempt and
-contains:
+Durable worker authority. Each Claim is permanently tied to one Attempt and stores
+owner, positive monotonic generation, state, lease expiry, heartbeat, claim time,
+and optional finish time. One partial unique index permits at most one `ACTIVE`
+Claim per StageExecution.
 
-- StageExecution ID;
-- worker owner ID;
-- positive monotonic generation;
-- `ACTIVE`, `COMPLETED`, or `EXPIRED` state;
-- claimed, heartbeat, lease-expiry, and optional finished timestamps.
+### `effects`
 
-A partial unique index permits at most one `ACTIVE` Claim per StageExecution. A
-unique `(stage_execution_id, generation)` constraint makes generations durable
-fencing tokens. Historical completed/expired Claims remain stored.
+PR5 adds one row for one logical external side effect:
+
+- Effect ID;
+- owning Execution and StageExecution;
+- stable `effect_key`, unique within the Execution;
+- SHA-256 `intent_digest` of canonical JSON intent;
+- PR2 Effect state: `PLANNED`, `CLAIMED`, `SUCCEEDED`, `FAILED`, or
+  `RECONCILIATION_REQUIRED`;
+- claim/resolution timestamps;
+- bounded result classification code;
+- optional bounded external reference;
+- create/update timestamps.
+
+The ledger intentionally does not persist the raw connector intent payload. A
+composite foreign key ensures the StageExecution belongs to the stored Execution.
+State/timestamp consistency is enforced with a database check constraint.
+
+### `effect_reconciliations`
+
+One optional immutable reconciliation record per Effect whose original outcome was
+ambiguous. It stores `CONFIRMED_SUCCEEDED` or `CONFIRMED_FAILED`, the bounded actor
+identifier, an optional external reference, and reconciliation time. A trigger
+rejects `UPDATE` and `DELETE` so reconciliation evidence cannot be rewritten.
 
 ## Transaction boundaries
 
@@ -60,22 +81,27 @@ fencing tokens. Historical completed/expired Claims remain stored.
    serializes migrators.
 2. **Execution bootstrap:** Execution plus initial StageExecution rows commit or
    roll back together.
-3. **PR3 compare-and-set:** concurrent expected-state writers cannot both win one
-   state predicate.
-4. **Claim acquisition:** the StageExecution row is locked before active-Claim
-   inspection and new Attempt/Claim creation.
-5. **Recovery:** expired Claim -> old Attempt `TIMED_OUT` -> Claim `EXPIRED` -> new
-   Attempt + higher-generation Claim occurs in one transaction.
-6. **Authoritative completion:** StageExecution, Attempt, and matching Claim are
-   validated/updated in one transaction; stale generations cannot commit.
-7. **Heartbeat:** one conditional SQL update extends only the exact live,
-   unexpired owner/Attempt/generation.
-8. **Evidence append:** one insert allocates the persisted event order position and
+3. **Compare-and-set:** concurrent expected-state writers cannot both win one state
+   predicate.
+4. **Worker claim acquisition/recovery/completion:** PR4 serializes authority with
+   row locks, conditional writes, generations, and leases.
+5. **Effect planning:** Stage ownership validation and insert-or-converge behavior
+   occur in one transaction. Concurrent same-key planners converge on the row that
+   wins the unique `(execution_id, effect_key)` constraint.
+6. **Effect claim:** the Effect row is locked before the PR2 `PLANNED -> CLAIMED`
+   transition is persisted, preventing two connector callers from both gaining
+   authority.
+7. **Effect completion:** one locked `CLAIMED` row moves to exactly one terminal
+   result with its result classification metadata.
+8. **Effect reconciliation:** the terminal ambiguous Effect is locked and a single
+   immutable reconciliation row is inserted; duplicate identical reconciliation is
+   idempotent, conflicting reconciliation is rejected.
+9. **Evidence append:** one insert allocates the persisted event order position and
    stores the event payload.
 
-PostgreSQL `READ COMMITTED` is the current reference isolation level. PR4's
-authority-sensitive paths rely on row locks, conditional writes, and database
-constraints rather than application read-then-write races.
+PostgreSQL `READ COMMITTED` is the current reference isolation level. Authority
+paths rely on row locks, conditional writes, uniqueness constraints, and foreign
+keys rather than application read-then-write races.
 
 ## Migration lifecycle
 
@@ -86,13 +112,16 @@ Current chain:
 
 1. `0001_initial` — Flow/runtime persistence and ordered evidence.
 2. `0002_worker_claims` — durable worker Claims, generations, and lease indexes.
+3. `0003_effect_ledger` — durable Effects, stable keys, intent digests, and immutable
+   reconciliation evidence.
 
-The integration suite verifies clean apply, rollback of `0002` while retaining the
-PR3 schema, rollback of `0001`, and reapplication of the full chain.
+The integration suite verifies clean apply, rollback of `0003` while retaining the
+PR4 schema, rollback of `0002` while retaining the PR3 schema, rollback of `0001`,
+and reapplication of the full chain.
 
 ## Still outside this slice
 
-- Effect ledger/idempotency/reconciliation — PR5;
+- connector/provider-specific idempotency-key forwarding and retry policy;
 - durable Gates and approval evidence — PR6;
 - Signals, providers, connectors, API/SDK/CLI, background recovery service, and
   operator UI.
