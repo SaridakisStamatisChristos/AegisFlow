@@ -27,7 +27,9 @@ const repository = new PostgresPersistence(pool);
 
 async function dropTestSchema() {
   await pool.query(`
-    DROP TABLE IF EXISTS effect_reconciliations, effects, claims, execution_events, attempts, stage_executions, executions, flow_versions, flows CASCADE;
+    DROP TABLE IF EXISTS gate_resolutions, gate_protections, gates, effect_reconciliations, effects, claims, execution_events, attempts, stage_executions, executions, flow_versions, flows CASCADE;
+    DROP FUNCTION IF EXISTS aegisflow_enforce_gate_protection();
+    DROP FUNCTION IF EXISTS aegisflow_reject_gate_resolution_mutation();
     DROP FUNCTION IF EXISTS aegisflow_reject_effect_reconciliation_mutation();
     DROP FUNCTION IF EXISTS aegisflow_reject_flow_version_mutation();
     DROP TABLE IF EXISTS aegisflow_schema_migrations;
@@ -36,7 +38,7 @@ async function dropTestSchema() {
 
 async function resetData() {
   await pool.query(
-    "TRUNCATE effect_reconciliations, effects, claims, execution_events, attempts, stage_executions, executions, flow_versions, flows RESTART IDENTITY",
+    "TRUNCATE gate_resolutions, gate_protections, gates, effect_reconciliations, effects, claims, execution_events, attempts, stage_executions, executions, flow_versions, flows RESTART IDENTITY",
   );
 }
 
@@ -95,16 +97,39 @@ test.after(async () => {
 
 test("clean migration chain applies, rolls back, and reapplies", async () => {
   const applied = await migrateUp(pool);
-  assert.deepEqual(applied, ["0001_initial", "0002_worker_claims", "0003_effect_ledger"]);
+  assert.deepEqual(applied, [
+    "0001_initial",
+    "0002_worker_claims",
+    "0003_effect_ledger",
+    "0004_durable_gates",
+  ]);
 
   const tables = await pool.query(
     `SELECT tablename
      FROM pg_tables
      WHERE schemaname = 'public'
-       AND tablename IN ('flows', 'flow_versions', 'executions', 'stage_executions', 'attempts', 'execution_events', 'claims', 'effects', 'effect_reconciliations')
+       AND tablename IN ('flows', 'flow_versions', 'executions', 'stage_executions', 'attempts', 'execution_events', 'claims', 'effects', 'effect_reconciliations', 'gates', 'gate_protections', 'gate_resolutions')
      ORDER BY tablename`,
   );
-  assert.equal(tables.rowCount, 9);
+  assert.equal(tables.rowCount, 12);
+
+  assert.equal(await rollbackLastMigration(pool), "0004_durable_gates");
+  assert.equal(
+    (await pool.query("SELECT to_regclass('public.gates') AS table_name")).rows[0].table_name,
+    null,
+  );
+  assert.equal(
+    (await pool.query("SELECT to_regclass('public.gate_protections') AS table_name")).rows[0].table_name,
+    null,
+  );
+  assert.equal(
+    (await pool.query("SELECT to_regclass('public.gate_resolutions') AS table_name")).rows[0].table_name,
+    null,
+  );
+  assert.notEqual(
+    (await pool.query("SELECT to_regclass('public.effects') AS table_name")).rows[0].table_name,
+    null,
+  );
 
   assert.equal(await rollbackLastMigration(pool), "0003_effect_ledger");
   assert.equal(
@@ -132,7 +157,12 @@ test("clean migration chain applies, rolls back, and reapplies", async () => {
   const removed = await pool.query("SELECT to_regclass('public.flows') AS table_name");
   assert.equal(removed.rows[0].table_name, null);
 
-  assert.deepEqual(await migrateUp(pool), ["0001_initial", "0002_worker_claims", "0003_effect_ledger"]);
+  assert.deepEqual(await migrateUp(pool), [
+    "0001_initial",
+    "0002_worker_claims",
+    "0003_effect_ledger",
+    "0004_durable_gates",
+  ]);
 });
 
 test("Flow, immutable FlowVersion, Execution, StageExecution, Attempt, and event round-trip", async () => {

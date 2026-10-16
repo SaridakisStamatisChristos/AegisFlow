@@ -10,14 +10,14 @@ The design centers four properties:
 
 - **Governed:** model reasoning and execution authority are separate.
 - **Durable:** important execution state survives process failure.
-- **Recoverable:** retries, waits, signals, worker failure, and ambiguous effects
-  have explicit semantics.
+- **Recoverable:** retries, waits, signals, worker failure, ambiguous effects, and
+  human approval waits have explicit semantics.
 - **Evidential:** execution history is a product primitive rather than an
   after-the-fact log reconstruction exercise.
 
-## Current state — PR5 durable Effect authority
+## Current state — PR6 durable Gate authority
 
-The repository now contains five bounded roadmap layers:
+The repository now contains six bounded roadmap layers:
 
 - `@aegisflow/contracts`: opaque IDs, Flow/Stage contracts, validation, immutable
   Flow-version snapshots, and public state vocabularies;
@@ -29,22 +29,23 @@ The repository now contains five bounded roadmap layers:
   generations, heartbeats, expiry, and abandoned-work recovery;
 - `@aegisflow/effects`: durable external-side-effect identity, duplicate planning
   convergence, claim authority, terminal outcome visibility, and immutable
-  reconciliation evidence.
+  reconciliation evidence;
+- `@aegisflow/gates`: durable human approval authority, expiry, immutable decision
+  evidence, and database-enforced protection of dependent work.
 
-PR5 gives one logical external side effect a stable `effectKey` scoped to an
-Execution. The ledger stores a SHA-256 digest of canonical intent rather than raw
-connector payload. Reusing the same key for different intent fails closed;
-concurrent identical planning converges on one Effect. A successful Effect suppresses
-replay. A known failure remains terminal. An ambiguous outcome becomes
-`RECONCILIATION_REQUIRED` and cannot be called again until reconciliation records
-what actually happened externally.
+A Gate is created only for a materialized `gate` Stage and derives its deadline and
+protected direct dependents from the Execution's pinned immutable Flow version. The
+Gate Stage moves into `WAITING`. Approval, rejection, or expiry is persisted with
+database time and immutable evidence; conflicting terminal decisions fail closed.
 
-AegisFlow does **not** claim generic exactly-once external execution. PR5 prevents
-blind replay inside the runtime; future connectors must still use provider-native
-idempotency and reconciliation capabilities where available.
+Protected StageExecutions cannot acquire an `ACTIVE` worker Claim while any
+protecting Gate is not `APPROVED`. The check exists in PostgreSQL as well as the
+Gate API, so bypassing the higher-level Gate service does not grant worker
+authority. Approval only removes the Gate barrier: later side-effecting work still
+needs PR5 Effect authority before a connector call.
 
-Durable human Gates, providers, connectors, API/SDK/CLI, and the operator console
-remain later roadmap slices.
+PR6 does not implement authentication/authorization policy for human identities,
+notifications, providers/connectors, API/SDK/CLI, or the operator console.
 
 ## Architecture direction
 
@@ -70,12 +71,12 @@ Control API ---- Flow Registry
 
         PostgreSQL (V1)
 flows / versions / executions / stages / attempts /
-claims / effects / reconciliations / gates / signals / evidence
+claims / effects / reconciliations / gates / gate decisions / signals / evidence
 ```
 
-Current boundaries keep contracts framework-free, core persistence-free,
-persistence free of worker/Effect authority, and queue/effects explicitly dependent
-on core + persistence for legal-transition and transactional storage services.
+Current boundaries keep contracts framework-free, core persistence-free, and
+persistence free of worker/Effect/Gate service logic. Queue, Effects, and Gates
+compose core transitions with PostgreSQL transactions and constraints.
 
 ## Local verification
 
@@ -106,18 +107,10 @@ const flow = validateFlowDefinition({
   name: "incident-response",
   stages: [
     {
-      id: "classify",
-      type: "agent",
-      provider: "deterministic",
-      instruction: "Classify severity",
-      allowedTools: [],
-      maxSteps: 1,
-    },
-    {
       id: "approval",
       type: "gate",
-      dependsOn: ["classify"],
       prompt: "Approve response?",
+      expiresAfterMs: 3_600_000,
     },
     {
       id: "notify",
@@ -131,25 +124,24 @@ const flow = validateFlowDefinition({
 });
 ```
 
-## Minimal Effect-ledger example
+## Minimal Gate example
 
 ```ts
-import { parseEffectId } from "@aegisflow/contracts";
-import { PostgresEffectLedger } from "@aegisflow/effects";
+import { parseGateId } from "@aegisflow/contracts";
+import { PostgresGateLedger } from "@aegisflow/gates";
 
-const effects = new PostgresEffectLedger(pool);
-const planned = await effects.planEffect({
-  id: parseEffectId("effect_example01"),
+const gates = new PostgresGateLedger(pool);
+const opened = await gates.createGate({
+  id: parseGateId("gate_example01"),
   executionId,
-  stageExecutionId,
-  effectKey: "notify:incident:42",
-  intent: { connector: "slack", operation: "send_message", incidentId: 42 },
+  stageExecutionId: approvalStageExecutionId,
 });
 
-const authority = await effects.claimEffect(planned.effect.id);
-if (authority.disposition === "CLAIMED") {
-  // Only now may the connector call be attempted.
-}
+await gates.resolveGate(opened.snapshot.gate.id, {
+  event: "APPROVE",
+  actorId: "operator-42",
+  evidence: { ticket: "CHG-123" },
+});
 ```
 
 ## Roadmap
@@ -158,8 +150,8 @@ if (authority.disposition === "CLAIMED") {
 2. Pure deterministic state machines — **complete**
 3. PostgreSQL persistence — **complete**
 4. Durable queue, worker leases, and generation fencing — **complete**
-5. Effect ledger and reconciliation — **current slice**
-6. Durable human Gates
+5. Effect ledger and reconciliation — **complete**
+6. Durable human Gates — **current slice**
 7. Provider abstraction and Agent Stage runtime
 8. HTTP/GitHub/Slack connectors
 9. Control API + TypeScript SDK
@@ -171,8 +163,9 @@ See [`docs/architecture.md`](docs/architecture.md),
 [`docs/state-machines.md`](docs/state-machines.md),
 [`docs/persistence-model.md`](docs/persistence-model.md),
 [`docs/queue-workers.md`](docs/queue-workers.md),
-[`docs/effect-ledger.md`](docs/effect-ledger.md), and
-[`docs/r7-pr5-evidence.md`](docs/r7-pr5-evidence.md).
+[`docs/effect-ledger.md`](docs/effect-ledger.md),
+[`docs/gates.md`](docs/gates.md), and
+[`docs/r7-pr6-evidence.md`](docs/r7-pr6-evidence.md).
 
 ## License
 

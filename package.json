@@ -16,16 +16,18 @@
     "build:persistence": "tsc -p packages/persistence/tsconfig.json",
     "build:queue": "tsc -p packages/queue/tsconfig.json",
     "build:effects": "tsc -p packages/effects/tsconfig.json",
-    "build": "npm run build:contracts --silent && npm run build:core --silent && npm run build:persistence --silent && npm run build:queue --silent && npm run build:effects --silent",
+    "build:gates": "tsc -p packages/gates/tsconfig.json",
+    "build": "npm run build:contracts --silent && npm run build:core --silent && npm run build:persistence --silent && npm run build:queue --silent && npm run build:effects --silent && npm run build:gates --silent",
     "clean": "node scripts/clean.mjs",
     "lint": "node scripts/lint.mjs",
-    "typecheck": "npm run build:contracts --silent && npm run build:core --silent && npm run build:persistence --silent && tsc -p packages/queue/tsconfig.json --noEmit --pretty false && tsc -p packages/effects/tsconfig.json --noEmit --pretty false",
+    "typecheck": "npm run build:contracts --silent && npm run build:core --silent && npm run build:persistence --silent && tsc -p packages/queue/tsconfig.json --noEmit --pretty false && tsc -p packages/effects/tsconfig.json --noEmit --pretty false && tsc -p packages/gates/tsconfig.json --noEmit --pretty false",
     "test": "npm run build --silent && node --test packages/contracts/test/*.test.mjs packages/core/test/*.test.mjs",
-    "test:postgres": "npm run build --silent && node --test --test-concurrency=1 packages/persistence/test/*.integration.test.mjs packages/queue/test/*.integration.test.mjs packages/effects/test/*.integration.test.mjs",
+    "test:postgres": "npm run build --silent && node --test --test-concurrency=1 packages/persistence/test/*.integration.test.mjs packages/queue/test/*.integration.test.mjs packages/effects/test/*.integration.test.mjs packages/gates/test/*.integration.test.mjs",
     "boundaries": "node scripts/check-boundaries.mjs",
     "secret:scan": "node scripts/check-secrets.mjs",
     "manifest:pr5": "node scripts/hash-pr5-artifacts.mjs",
-    "verify": "npm run lint && npm run typecheck && npm test && npm run boundaries && npm run secret:scan && npm run manifest:pr5"
+    "manifest:pr6": "node scripts/hash-pr6-artifacts.mjs",
+    "verify": "npm run lint && npm run typecheck && npm test && npm run boundaries && npm run secret:scan && npm run manifest:pr6"
   },
   "devDependencies": {
     "@types/node": "22.20.5",
