@@ -1,0 +1,28 @@
+{
+  "name": "aegisflow",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Governed agentic automation with durable execution, explicit authority, recovery, and evidence.",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=22 <23"
+  },
+  "scripts": {
+    "build": "tsc -p packages/contracts/tsconfig.json",
+    "clean": "node scripts/clean.mjs",
+    "lint": "node scripts/lint.mjs",
+    "typecheck": "tsc -p packages/contracts/tsconfig.json --noEmit --pretty false",
+    "test": "npm run build --silent && node --test packages/contracts/test/*.test.mjs",
+    "boundaries": "node scripts/check-boundaries.mjs",
+    "secret:scan": "node scripts/check-secrets.mjs",
+    "verify": "npm run lint && npm run typecheck && npm test && npm run boundaries && npm run secret:scan"
+  },
+  "devDependencies": {
+    "typescript": "5.8.3"
+  },
+  "license": "UNLICENSED",
+  "packageManager": "npm@10.9.2"
+}

@@ -1,0 +1,30 @@
+{
+  "name": "incident-response",
+  "description": "PR1 contract example; runtime execution arrives in later slices.",
+  "stages": [
+    {
+      "id": "classify",
+      "type": "agent",
+      "provider": "deterministic",
+      "instruction": "Classify incident severity.",
+      "allowedTools": [],
+      "maxSteps": 1
+    },
+    {
+      "id": "approval",
+      "type": "gate",
+      "dependsOn": ["classify"],
+      "prompt": "Approve high-severity response?"
+    },
+    {
+      "id": "notify",
+      "type": "action",
+      "dependsOn": ["approval"],
+      "connector": "slack",
+      "operation": "send_message",
+      "input": {
+        "channel": "ops"
+      }
+    }
+  ]
+}
