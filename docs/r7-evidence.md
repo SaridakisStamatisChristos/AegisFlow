@@ -99,6 +99,19 @@ the roadmap slices that introduce those surfaces.
 - Independent reverification: dedicated test verifies `__proto__` is retained as
   data, output has a null prototype, and global object prototypes remain clean.
 
+### F-003 — initial CI trigger produced no hosted run on repository bootstrap
+
+- Evidence: PR #1 opened with the workflow present only on the feature branch,
+  while the initial GitHub Actions query returned zero runs.
+- Root cause: the bootstrap workflow restricted `push` to `main`, leaving no
+  reliable branch-push evidence path before the workflow is established on the
+  default branch.
+- Earliest invalidated phase: INTEGRATE/GENERATE for CI configuration.
+- Repair: allow the same verification workflow on feature-branch pushes as well
+  as pull requests.
+- Reverification: a hosted push run was created for the repaired workflow; its
+  conclusion must still be observed before hosted verification is marked PASS.
+
 ## Evidence gaps
 
 1. `npm install` could not be exercised against the npm registry from this local
