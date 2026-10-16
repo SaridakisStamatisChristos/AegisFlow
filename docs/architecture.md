@@ -7,9 +7,10 @@ durability substrate for V1. Domain contracts and pure state machines remain
 independent of PostgreSQL, HTTP frameworks, model SDKs, connector SDKs, wall-clock
 time, and randomness.
 
-PR1 introduced `@aegisflow/contracts`. PR2 introduced `@aegisflow/core`. PR3 adds
-`@aegisflow/persistence`, a PostgreSQL adapter that stores those contracts without
-redefining their transition semantics.
+PR1 introduced `@aegisflow/contracts`. PR2 introduced `@aegisflow/core`. PR3 added
+`@aegisflow/persistence`. PR4 adds `@aegisflow/queue`, which composes core transition
+semantics with PostgreSQL transactions to establish worker authority without moving
+workflow semantics into the database adapter.
 
 ## Dependency rule
 
@@ -25,62 +26,68 @@ The current enforced package edges are:
         ^
         |
 @aegisflow/persistence ---> pg / Node filesystem only
+        ^
+        |
+@aegisflow/queue -------> @aegisflow/core + pg
 ```
 
 `contracts` imports only relative modules. `core` imports only `contracts` plus
-relative modules. `persistence` imports only `contracts`, the PostgreSQL driver,
-Node migration I/O, and relative modules. In particular, persistence does **not**
-import `core`; a database repository must never become the authority for whether a
-domain transition is legal.
+relative modules. `persistence` imports only `contracts`, PostgreSQL, Node migration
+I/O, and relative modules. `queue` may depend on contracts, core, persistence, and
+PostgreSQL. Persistence does **not** depend on queue.
 
-Later scheduling/runtime packages may depend on both core and persistence through
-explicit interfaces.
-
-## Why the hand-off architecture survives review
+## Architectural invariants
 
 ### PostgreSQL-first durability
 
 The target runtime requires transactional ownership, leases, durable Gates,
-Signals, Effects, and ordered evidence. PR3 now supplies the reference relational
-substrate without adding Redis, Kafka, Kubernetes, or another distributed state
-system.
+Signals, Effects, and ordered evidence. PostgreSQL remains the only required durable
+coordination substrate in V1; PR4 does not introduce Redis, Kafka, RabbitMQ, NATS,
+or Kubernetes.
 
-### Keep state transitions pure
+### Pure domain transitions
 
-PR2 decides whether a transition is legal. PR3 provides storage primitives such as
-compare-and-set. This separation means a storage race can be prevented without
-copying transition policy into SQL/repositories.
+PR2 remains authoritative for legal Attempt and StageExecution transitions. PR4
+uses those transition functions while PostgreSQL supplies serialization, durable
+leases, and fencing. The queue does not invent a second state-machine policy.
 
-### Immutable Flow Versions
+### Immutable Flow Versions and atomic bootstrap
 
-Flow Version snapshots are append-only in the contract and now independently
-protected in PostgreSQL by uniqueness constraints plus a trigger rejecting update
-or delete. Executions use a composite foreign key so the stored Flow ID must match
-the Flow Version's owner.
+Flow Versions remain append-only and database-protected. Execution creation plus
+initial Stage materialization stays one transaction.
 
-### Atomic execution materialization
+### Worker authority is explicit
 
-Creating an Execution and its initial StageExecution rows is one transaction.
-A partially materialized workflow is therefore not a valid persisted state.
+A Claim is durable authority for exactly one Attempt on one StageExecution. Claims
+carry owner, lease expiry, and a monotonically increasing generation. The database
+allows only one `ACTIVE` Claim per Stage. Completion must match the live
+StageExecution, Attempt, owner, generation, and unexpired lease.
 
-### Evidence ordering
+### Recovery preserves history
 
-Concurrent execution-event inserts receive a database identity position. This
-provides an unambiguous persisted order without requiring an in-memory sequencer.
+A recovered expired Claim is retained as `EXPIRED`; its Attempt becomes
+`TIMED_OUT`. The replacement worker gets a new Attempt sequence and a larger
+fencing generation. Earlier workers therefore remain observable but cannot regain
+authority.
 
-### Reject premature queue semantics
+### Database clock for leases
 
-PR3 does not add worker claims, leases, fencing generations, heartbeats, or recovery.
-Those are PR4 because they require their own concurrency contract and adversarial
-failure tests.
+Lease expiry and heartbeat extension use PostgreSQL `clock_timestamp()`. Worker
+wall clocks do not decide authority.
+
+### Consistent lock order
+
+Claim, recovery, and completion paths lock durable records in the same conceptual
+order: StageExecution -> Claim -> Attempt. This keeps authority changes serialized
+and avoids an obvious application-level lock-order inversion.
 
 ## Package roadmap
 
 - `@aegisflow/contracts` — IDs, public domain types, schemas, error taxonomy.
 - `@aegisflow/core` — pure state machines and retry/cancellation semantics.
 - `@aegisflow/persistence` — PostgreSQL migrations and reference repositories.
+- `@aegisflow/queue` — claims, leases, fencing, heartbeat, expiry, recovery.
 - `@aegisflow/flows` — graph scheduling and version semantics.
-- `@aegisflow/queue` — claims, leases, fencing, expiry, recovery.
 - `@aegisflow/policy` — deterministic allow/require-gate/deny decisions.
 - `@aegisflow/effects` — idempotency and reconciliation ledger.
 - `@aegisflow/gates` — durable human approval lifecycle.
@@ -95,26 +102,27 @@ Applications later consume those packages: API, worker, CLI, then operator web.
 
 1. User/API input -> contract validation.
 2. Runtime -> persistence transaction boundary.
-3. Worker -> lease/fencing authority boundary (PR4).
+3. Worker -> Claim owner + lease + generation fencing authority.
 4. Model output -> schema validation + deterministic policy.
 5. Policy -> optional durable Gate.
 6. Approved Action -> Effect ledger -> connector.
 7. External response -> classified success/failure/ambiguous result.
 8. Runtime events -> redacted structured Evidence.
 
-## Current PR3 guarantees
+## Current PR4 guarantees
 
-PR3 can claim, when the PostgreSQL integration suite is green on the exact revision:
+For the PostgreSQL 17 reference target, the executed integration suite demonstrates:
 
-- clean migration and single-step rollback/reapply;
-- durable round-trip of Flow, FlowVersion, Execution, StageExecution, Attempt, and
-  execution-event records;
-- database-enforced FlowVersion immutability;
-- atomic Execution + initial Stage materialization;
-- retry sequence uniqueness;
-- compare-and-set conflict arbitration under concurrent writers;
-- lossless concurrent event append with total database ordering.
+- concurrent claimers produce exactly one authoritative worker;
+- only the matching live owner/Attempt/generation can heartbeat or complete;
+- an expired lease cannot be resurrected by heartbeat or completion;
+- recovery times out the abandoned Attempt before issuing a higher generation;
+- stale completion after recovery is rejected;
+- two concurrent finishers cannot both authoritatively finish one generation;
+- repeated recovery preserves monotonically increasing generations and complete
+  Attempt/Claim history;
+- migration `0002_worker_claims` rolls back and reapplies without regressing PR3.
 
-PR3 does **not** claim worker recovery, lease fencing, external-effect idempotency,
-durable Gate semantics, provider/connector correctness, deployment readiness, or
-production readiness.
+PR4 does **not** claim Effect idempotency/reconciliation, durable human Gate
+behavior, a background recovery sweeper, provider/connector correctness, HA/backup
+readiness, deployment readiness, or production/SOTA performance.
