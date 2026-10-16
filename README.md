@@ -15,26 +15,26 @@ The design centers four properties:
 - **Evidential:** execution history is a product primitive rather than an
   after-the-fact log reconstruction exercise.
 
-## Current state — PR2 deterministic core
+## Current state — PR3 PostgreSQL persistence
 
-The repository now contains the first two roadmap slices:
+The repository now contains three bounded roadmap layers:
 
-- `@aegisflow/contracts`: opaque IDs, bounded Flow/Stage contracts, validation,
-  immutable Flow-version snapshots, and public state vocabularies;
-- `@aegisflow/core`: pure deterministic state machines for Executions,
-  StageExecutions, Attempts, Gates, and Effects;
-- monotonic terminal/cancellation semantics and explicit invalid-transition errors;
-- retry sequence allocation without reopening prior Attempts;
-- idempotent identical Gate decisions with deterministic conflict rejection;
-- reconciliation as a terminal Effect outcome so ambiguous external effects cannot
-  blind-replay;
-- deterministic Decision branch resolution without adding a general expression
-  language;
-- adversarial tests for malformed inputs and terminal-state revival;
-- architecture-boundary checks keeping `core` dependent only on `contracts`.
+- `@aegisflow/contracts`: opaque IDs, Flow/Stage contracts, validation, immutable
+  in-memory Flow-version snapshots, and public state vocabularies;
+- `@aegisflow/core`: pure deterministic Execution, StageExecution, Attempt, Gate,
+  Effect, cancellation, retry, and Decision transition logic;
+- `@aegisflow/persistence`: PostgreSQL migrations and reference repositories for
+  Flows, Flow Versions, Executions, StageExecutions, Attempts, and ordered
+  execution evidence.
 
-PostgreSQL persistence, workers/leases, durable Effects and Gates, providers,
-connectors, API/SDK/CLI, and the operator console remain later roadmap slices.
+PR3 adds database-enforced Flow-Version immutability, composite Flow/Flow-Version
+integrity, atomic Execution + initial Stage materialization, retry-sequence
+uniqueness, compare-and-set storage primitives, and concurrent event ordering.
+Persistence does not decide whether a state transition is legal; callers must use
+the pure core semantics.
+
+Worker claims/leases/fencing, durable Effects and Gates, providers, connectors,
+API/SDK/CLI, and the operator console remain later roadmap slices.
 
 ## Architecture direction
 
@@ -61,18 +61,29 @@ flows / versions / executions / attempts /
 effects / gates / signals / evidence
 ```
 
-The current code keeps contracts framework-free and keeps the pure core free of
-persistence, HTTP, model-provider, connector, clock, randomness, and worker logic.
+Current package boundaries keep contracts framework-free, core persistence-free,
+and the PostgreSQL adapter dependent only on contracts plus the database/Node
+adapter surface.
 
 ## Local verification
 
-Requirements: Node.js 22 and npm 10. TypeScript is installed as a development
-dependency.
+Requirements: Node.js 22 and npm 10.
+
+Source-only verification:
 
 ```bash
 npm install
 npm run verify
 ```
+
+PostgreSQL integration verification requires a PostgreSQL database and explicitly
+fails if `DATABASE_URL` is absent:
+
+```bash
+DATABASE_URL=postgresql://user:password@localhost:5432/aegisflow_test npm run test:postgres
+```
+
+Hosted CI provisions PostgreSQL 17 and executes both verification paths.
 
 ## Minimal contract example
 
@@ -130,8 +141,8 @@ nextAttemptSequence(2);
 ## Roadmap
 
 1. Foundation and contracts — **complete**
-2. Pure deterministic state machines — **current slice**
-3. PostgreSQL persistence
+2. Pure deterministic state machines — **complete**
+3. PostgreSQL persistence — **current slice**
 4. Durable queue, worker leases, and generation fencing
 5. Effect ledger and reconciliation
 6. Durable human Gates
@@ -143,8 +154,9 @@ nextAttemptSequence(2);
 12. Deterministic demos, failure injection, and benchmarks
 
 See [`docs/architecture.md`](docs/architecture.md),
-[`docs/state-machines.md`](docs/state-machines.md), and
-[`docs/r7-pr2-evidence.md`](docs/r7-pr2-evidence.md).
+[`docs/state-machines.md`](docs/state-machines.md),
+[`docs/persistence-model.md`](docs/persistence-model.md), and
+[`docs/r7-pr3-evidence.md`](docs/r7-pr3-evidence.md).
 
 ## License
 

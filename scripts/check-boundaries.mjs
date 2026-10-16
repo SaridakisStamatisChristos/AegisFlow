@@ -22,6 +22,19 @@ const packageRules = [
       );
     },
   },
+  {
+    name: "@aegisflow/persistence",
+    sourceRoot: join(root, "packages", "persistence", "src"),
+    allows(specifier) {
+      return (
+        specifier.startsWith("./") ||
+        specifier.startsWith("../") ||
+        specifier === "@aegisflow/contracts" ||
+        specifier === "pg" ||
+        specifier.startsWith("node:")
+      );
+    },
+  },
 ];
 
 const importPattern = /(?:from\s+|import\s*)["']([^"']+)["']/g;
@@ -52,4 +65,6 @@ if (failures.length > 0) {
   console.error("architecture boundary violation:\n" + failures.join("\n"));
   process.exit(1);
 }
-console.log("boundaries: contracts is isolated; core depends only on contracts");
+console.log(
+  "boundaries: contracts isolated; core -> contracts; persistence -> contracts + PostgreSQL adapter only",
+);

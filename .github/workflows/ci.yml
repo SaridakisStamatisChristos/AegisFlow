@@ -10,7 +10,23 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: postgresql://aegisflow:aegisflow@localhost:5432/aegisflow_test
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: aegisflow
+          POSTGRES_PASSWORD: aegisflow
+          POSTGRES_DB: aegisflow_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U aegisflow -d aegisflow_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -18,7 +34,9 @@ jobs:
           node-version: 22
       - name: Install toolchain
         run: npm install --ignore-scripts
-      - name: Verify contracts and repository boundaries
+      - name: Verify source and package boundaries
         run: npm run verify
+      - name: Verify PostgreSQL migrations and repositories
+        run: npm run test:postgres
       - name: Audit runtime dependencies
         run: npm audit --omit=dev --audit-level=high

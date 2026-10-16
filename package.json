@@ -13,16 +13,20 @@
   "scripts": {
     "build:contracts": "tsc -p packages/contracts/tsconfig.json",
     "build:core": "tsc -p packages/core/tsconfig.json",
-    "build": "npm run build:contracts --silent && npm run build:core --silent",
+    "build:persistence": "tsc -p packages/persistence/tsconfig.json",
+    "build": "npm run build:contracts --silent && npm run build:core --silent && npm run build:persistence --silent",
     "clean": "node scripts/clean.mjs",
     "lint": "node scripts/lint.mjs",
-    "typecheck": "npm run build:contracts --silent && tsc -p packages/core/tsconfig.json --noEmit --pretty false",
+    "typecheck": "npm run build:contracts --silent && tsc -p packages/core/tsconfig.json --noEmit --pretty false && tsc -p packages/persistence/tsconfig.json --noEmit --pretty false",
     "test": "npm run build --silent && node --test packages/contracts/test/*.test.mjs packages/core/test/*.test.mjs",
+    "test:postgres": "npm run build --silent && node --test --test-concurrency=1 packages/persistence/test/*.integration.test.mjs",
     "boundaries": "node scripts/check-boundaries.mjs",
     "secret:scan": "node scripts/check-secrets.mjs",
     "verify": "npm run lint && npm run typecheck && npm test && npm run boundaries && npm run secret:scan"
   },
   "devDependencies": {
+    "@types/node": "22.20.5",
+    "@types/pg": "8.23.1",
     "typescript": "5.8.3"
   },
   "license": "UNLICENSED",
