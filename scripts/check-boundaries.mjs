@@ -35,6 +35,20 @@ const packageRules = [
       );
     },
   },
+  {
+    name: "@aegisflow/queue",
+    sourceRoot: join(root, "packages", "queue", "src"),
+    allows(specifier) {
+      return (
+        specifier.startsWith("./") ||
+        specifier.startsWith("../") ||
+        specifier === "@aegisflow/contracts" ||
+        specifier === "@aegisflow/core" ||
+        specifier === "@aegisflow/persistence" ||
+        specifier === "pg"
+      );
+    },
+  },
 ];
 
 const importPattern = /(?:from\s+|import\s*)["']([^"']+)["']/g;
@@ -66,5 +80,5 @@ if (failures.length > 0) {
   process.exit(1);
 }
 console.log(
-  "boundaries: contracts isolated; core -> contracts; persistence -> contracts + PostgreSQL adapter only",
+  "boundaries: contracts isolated; core -> contracts; persistence -> contracts + PostgreSQL; queue -> contracts + core + persistence + PostgreSQL",
 );
