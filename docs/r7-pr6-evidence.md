@@ -73,12 +73,33 @@ Observed:
 - dependency audit: PASS, zero vulnerabilities;
 - overall conclusion: SUCCESS.
 
+## Artifact manifest verification
+
+Manifest-generation run `38977132782`, job `117229180576`, head
+`35b8dc75a9235389b926151bdb3f9b172764c449`, repeated the complete green chain and
+generated 15 SHA-256 entries for the declared PR6 executable/config artifacts.
+
+Manifest-enforced run `38977242138`, job `117229532722`, head
+`000cd4c8f7691ab07c692d0411f794e0d76b9a5d`, observed:
+
+- `pr6-manifest: verified 15 executable/config artifacts`;
+- contract/core: **30/30 PASS**;
+- combined PostgreSQL: **44/44 PASS**;
+- Gate-specific: **15/15 PASS**;
+- migration rollback/reapply and PR3–PR5 regressions: PASS;
+- dependency audit: PASS, zero vulnerabilities;
+- overall conclusion: SUCCESS.
+
+The manifest is deliberately bounded to repository artifacts. Because AegisFlow
+currently has no committed `package-lock.json`, it is not evidence of frozen
+transitive dependency resolution.
+
 ## Failure / repair ledger
 
-No PR6 implementation defect was exposed by the first complete hosted run. There is
-therefore no F6 repair entry. This does not claim exhaustive proof of all possible
-Gate failure modes; it means the declared adversarial set produced no failing
-counterexample.
+No PR6 implementation defect was exposed by the complete hosted falsification runs.
+There is therefore no F6 repair entry. This does not claim exhaustive proof of all
+possible Gate failure modes; it means the declared adversarial set produced no
+failing counterexample.
 
 ## Evidence boundaries
 
@@ -90,12 +111,16 @@ The executed evidence does not establish:
 - a general graph scheduler or automatic downstream readiness propagation;
 - a continuously running expiry sweeper or a maximum expiration latency;
 - provider/connector correctness;
+- frozen transitive dependency resolution;
 - multi-region/HA, backup/restore, deployment, or production performance.
 
 ## R7 closure state
 
-The code-bearing PR6 semantics are **VERIFIED** by run `38976806862`.
+The code-bearing PR6 semantics and the 15-artifact executable/config manifest are
+**VERIFIED** by the hosted runs above.
 
-The PR remains **PARTIAL / draft** until the PR6 executable/config artifact
-manifest is generated, committed, enforced by `npm run verify`, and an exact final
-head passes the complete hosted source/PostgreSQL/dependency chain.
+This documentation-only closure commit changes no manifest-covered artifact. The
+remaining promotion condition is one complete hosted workflow on the exact resulting
+branch head. Its run/job identifiers are recorded in PR metadata rather than
+committing them here, which would create another head and invalidate the meaning of
+“exact final head.”

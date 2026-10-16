@@ -19,9 +19,9 @@ evidence, restart-safe decisions, and protected-work authority on PostgreSQL 17.
 | R6-12 | Restart/replacement of the Gate service reconstructs durable terminal state and evidence. | replacement-ledger test. | VERIFIED |
 | R6-13 | Gate/protected Stage ownership cannot cross Execution boundaries. | composite FKs + cross-Execution test. | VERIFIED |
 | R6-14 | Migration `0004_durable_gates` is reversible and PR3–PR5 persistence/queue/effect semantics remain green. | migration rollback/reapply + full PostgreSQL suite. | VERIFIED |
-| R6-15 | Strict TypeScript, package boundaries, text hygiene, secret scan, and runtime dependency audit pass. | GitHub Actions run `38976806862`, job `117228101153`. | VERIFIED |
-| R6-16 | Declared executable/config PR6 artifacts have reproducible SHA-256 closure and the exact final head passes hosted verification. | PR6 manifest + final-head CI. | PARTIAL — manifest/final-head gate pending |
-| R6-17 | Authentication/RBAC, notifications/UI, provider/connectors, generic scheduling, continuous sweeper latency, HA/backup, and SOTA claims are excluded. | Scope docs and PR body. | N/A — explicitly outside PR6 |
+| R6-15 | Strict TypeScript, package boundaries, text hygiene, secret scan, and runtime dependency audit pass. | GitHub Actions run `38976806862`, job `117228101153`; repeated by later closure runs. | VERIFIED |
+| R6-16 | Declared executable/config PR6 artifacts have deterministic SHA-256 closure enforced by the repository verification command. | Generation run `38977132782`, job `117229180576`; enforced-manifest run `38977242138`, job `117229532722`, head `000cd4c8f7691ab07c692d0411f794e0d76b9a5d`. | VERIFIED |
+| R6-17 | Authentication/RBAC, notifications/UI, provider/connectors, generic scheduling, continuous sweeper latency, HA/backup, dependency-lock reproducibility, and SOTA claims are excluded. | Scope docs, PR body, and repository packaging state. | N/A — explicitly outside PR6 |
 
 ## First full hosted verification
 
@@ -40,8 +40,31 @@ Run `38976806862`, job `117228101153`, code head
 No PR6 implementation defect was exposed by the first complete hosted verification
 run. R7 records that result directly rather than inventing a repair event.
 
-## Completion rule
+## Artifact closure
 
-PR6 may be promoted to **VERIFIED / MERGE-READY** only when R6-16 is VERIFIED on
-the exact final branch head. A later change to a manifest-covered artifact requires
-manifest regeneration and dependent-gate re-verification.
+Run `38977132782`, job `117229180576`, head
+`35b8dc75a9235389b926151bdb3f9b172764c449`, generated the deterministic PR6
+SHA-256 manifest while repeating the complete green source/PostgreSQL/dependency
+chain.
+
+Run `38977242138`, job `117229532722`, head
+`000cd4c8f7691ab07c692d0411f794e0d76b9a5d`, then enforced the committed manifest:
+
+- `pr6-manifest: verified 15 executable/config artifacts`;
+- contract/core: **30/30 PASS**;
+- PostgreSQL integration: **44/44 PASS**;
+- Gate-specific adversarial tests: **15/15 PASS**;
+- runtime dependency audit: PASS, zero vulnerabilities;
+- overall job: SUCCESS.
+
+The repository does not currently commit a `package-lock.json`; therefore this
+manifest verifies declared source/config artifacts, not frozen transitive dependency
+resolution.
+
+## Promotion rule
+
+Executable/config closure is VERIFIED. This documentation-only closure commit does
+not alter any manifest-covered artifact. PR6 may be promoted to **VERIFIED /
+MERGE-READY** only if the exact resulting branch head passes the complete hosted
+workflow. That final external run ID is recorded in PR metadata instead of editing
+this file again and creating a self-invalidating latest-run loop.
