@@ -392,7 +392,7 @@ export class PostgresPersistence {
       `SELECT position::text, id, execution_id, event_type, payload, created_at
        FROM execution_events
        WHERE execution_id = $1
-       ORDER BY position ASC`,
+       ORDER BY execution_events.position ASC`,
       [executionId],
     );
     return Object.freeze(result.rows.map(mapExecutionEvent));
