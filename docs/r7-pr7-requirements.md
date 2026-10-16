@@ -20,7 +20,13 @@ the existing PostgreSQL worker/Effect/Gate authority layers.
 | R7-13 | Migration `0005_agent_provider_results` rolls back/reapplies and PR3–PR6 regressions remain green. | canonical migration + persistence/queue/effect/gate suites | VERIFIED |
 | R7-14 | Provider JSON has ordinary object semantics without `__proto__` prototype mutation. | explicit provider normalization regression | VERIFIED |
 | R7-15 | Strict TypeScript, package boundaries, text hygiene, secret scan, and dependency audit pass. | hosted CI | VERIFIED |
-| R7-16 | Declared PR7 executable/config/test artifacts have SHA-256 closure and exact final head passes hosted verification. | PR7 manifest + final-head CI | PARTIAL — manifest/final-head gate pending |
+| R7-16 | Declared PR7 executable/config/test artifacts have deterministic SHA-256 closure enforced by ordinary verification. | 17-artifact manifest; run `38982468778`, job `117246250332` | VERIFIED |
 | R7-17 | Provider-specific networking, credentials, multi-step tool loops, connector correctness, HA/backup, production readiness, and SOTA claims are excluded. | scope docs + PR body | N/A — outside PR7 |
 
-PR7 is merge-ready only when R7-16 is VERIFIED on the exact final branch head.
+## Promotion rule
+
+The executable/config/test closure above is VERIFIED on manifest-bearing head
+`bccf379c1076611538dd14ae927316fc6510b865`. This documentation-only closure commit changes no
+manifest-covered artifact. PR7 is promoted to merge-ready only after the exact resulting branch head
+passes the complete hosted source/PostgreSQL/dependency chain; that final run is recorded in PR
+metadata so documenting it does not create a self-invalidating additional commit.

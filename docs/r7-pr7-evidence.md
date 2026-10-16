@@ -40,8 +40,8 @@ Run `38981931104` passed migration, persistence, queue, effects, gates, and 10/1
 tests. The only failure was strict equality between ordinary JSON `{status:"ok"}` and a normalized
 null-prototype object with the same data. Repair `13e7765c736a4376830029755f70d579f64a579b`
 restored ordinary JSON object semantics while defining keys through `Object.defineProperty`, so an
-own `__proto__` property cannot mutate the object prototype. A dedicated regression is included
-before closure.
+own `__proto__` property cannot mutate the object prototype. A dedicated regression was added and
+passed before closure.
 
 ## First complete green code run
 
@@ -59,6 +59,37 @@ Run `38982103029`, job `117245080217`, head
 - runtime dependency audit: PASS, zero vulnerabilities reported;
 - overall job: SUCCESS.
 
+## Expanded closure run
+
+Run `38982342831`, job `117245841783`, head
+`25b47f16a90334e119b33301b6f59204aab9b985` added the explicit `__proto__` regression and expanded
+the closure surface to 17 executable/config/test artifacts:
+
+- source/unit tests: **36/36 PASS**;
+- PostgreSQL integration: **55/55 PASS**;
+- prototype-mutation regression: PASS;
+- dependency audit: PASS, zero vulnerabilities;
+- deterministic 17-artifact SHA-256 values emitted;
+- overall job: SUCCESS.
+
+## Manifest enforcement
+
+The emitted hashes were committed unchanged in `docs/r7-pr7-manifest.sha256` at head
+`bccf379c1076611538dd14ae927316fc6510b865`.
+
+Run `38982468778`, job `117246250332` then enforced that manifest through ordinary `npm run verify`:
+
+- `pr7-manifest: verified 17 executable/config artifacts`;
+- source/unit tests: **36/36 PASS**;
+- persistence PostgreSQL: **8/8 PASS**;
+- worker queue/fencing: **8/8 PASS**;
+- Effect ledger/reconciliation: **13/13 PASS**;
+- Gate authority: **15/15 PASS**;
+- Provider/Agent integration: **11/11 PASS**;
+- combined PostgreSQL integration: **55/55 PASS**;
+- runtime dependency audit: PASS, zero vulnerabilities;
+- overall job: SUCCESS.
+
 ## Evidence boundaries
 
 The executed evidence does not establish provider-specific HTTP/API correctness, credential
@@ -69,6 +100,8 @@ manifest closes declared source/config/test artifacts rather than the transitive
 
 ## Closure state
 
-Code semantics are VERIFIED by the first complete green run above. PR7 remains PARTIAL/draft until
-the expanded artifact manifest is generated, committed, enforced, and an exact final head passes
-the complete hosted chain.
+The declared executable/config/test PR7 surface is **VERIFIED** through manifest enforcement on
+`bccf379c1076611538dd14ae927316fc6510b865`. This evidence-ledger update is documentation-only and
+changes no manifest-covered artifact. PR promotion still requires one complete hosted run on the
+exact resulting branch head; that final-head run is recorded in PR metadata rather than committed
+back into this file, avoiding a self-invalidating evidence loop.
