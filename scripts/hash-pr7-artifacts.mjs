@@ -12,6 +12,7 @@ const artifacts = [
   "scripts/hash-pr7-artifacts.mjs",
   "packages/persistence/migrations/0005_agent_provider_results.up.sql",
   "packages/persistence/migrations/0005_agent_provider_results.down.sql",
+  "packages/persistence/test/persistence.integration.test.mjs",
   "packages/providers/package.json",
   "packages/providers/tsconfig.json",
   "packages/providers/src/errors.ts",

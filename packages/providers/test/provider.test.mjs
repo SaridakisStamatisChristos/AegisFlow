@@ -36,6 +36,19 @@ test("provider response normalization rejects malformed and duplicate tool calls
   );
 });
 
+test("provider JSON preserves ordinary object semantics without prototype mutation", () => {
+  const payload = JSON.parse(
+    '{"kind":"final","output":{"__proto__":{"polluted":true},"status":"ok"}}',
+  );
+  const response = normalizeProviderResponse(payload);
+  assert.equal(response.kind, "final");
+  assert.equal(Object.getPrototypeOf(response.output), Object.prototype);
+  assert.equal(Object.prototype.polluted, undefined);
+  assert.equal(Object.hasOwn(response.output, "__proto__"), true);
+  assert.equal(response.output.status, "ok");
+  assert.deepEqual(response.output.__proto__, { polluted: true });
+});
+
 test("supported output schema subset accepts valid nested output", () => {
   const schema = {
     type: "object",
