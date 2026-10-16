@@ -1,6 +1,8 @@
 import { rm } from "node:fs/promises";
 
-await rm(new URL("../packages/contracts/dist", import.meta.url), {
-  recursive: true,
-  force: true,
-});
+for (const packageName of ["contracts", "core"]) {
+  await rm(new URL(`../packages/${packageName}/dist`, import.meta.url), {
+    recursive: true,
+    force: true,
+  });
+}

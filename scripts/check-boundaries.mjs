@@ -2,28 +2,54 @@ import { readFile, readdir } from "node:fs/promises";
 import { join, relative } from "node:path";
 
 const root = new URL("../", import.meta.url).pathname;
-const contractsRoot = join(root, "packages", "contracts", "src");
-const forbiddenImport = /from\s+["'](?!\.\/|\.\.\/)([^"']+)["']/g;
 const failures = [];
+const packageRules = [
+  {
+    name: "@aegisflow/contracts",
+    sourceRoot: join(root, "packages", "contracts", "src"),
+    allows(specifier) {
+      return specifier.startsWith("./") || specifier.startsWith("../");
+    },
+  },
+  {
+    name: "@aegisflow/core",
+    sourceRoot: join(root, "packages", "core", "src"),
+    allows(specifier) {
+      return (
+        specifier.startsWith("./") ||
+        specifier.startsWith("../") ||
+        specifier === "@aegisflow/contracts"
+      );
+    },
+  },
+];
 
-async function walk(directory) {
+const importPattern = /(?:from\s+|import\s*)["']([^"']+)["']/g;
+
+async function walk(rule, directory) {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const path = join(directory, entry.name);
     if (entry.isDirectory()) {
-      await walk(path);
+      await walk(rule, path);
       continue;
     }
     if (!entry.name.endsWith(".ts")) continue;
     const text = await readFile(path, "utf8");
-    for (const match of text.matchAll(forbiddenImport)) {
-      failures.push(`${relative(root, path)} imports external module '${match[1]}'`);
+    for (const match of text.matchAll(importPattern)) {
+      const specifier = match[1];
+      if (specifier !== undefined && !rule.allows(specifier)) {
+        failures.push(`${relative(root, path)} imports forbidden module '${specifier}'`);
+      }
     }
   }
 }
 
-await walk(contractsRoot);
+for (const rule of packageRules) {
+  await walk(rule, rule.sourceRoot);
+}
+
 if (failures.length > 0) {
-  console.error("contracts boundary violation:\n" + failures.join("\n"));
+  console.error("architecture boundary violation:\n" + failures.join("\n"));
   process.exit(1);
 }
-console.log("boundaries: @aegisflow/contracts has no adapter/framework dependencies");
+console.log("boundaries: contracts is isolated; core depends only on contracts");
