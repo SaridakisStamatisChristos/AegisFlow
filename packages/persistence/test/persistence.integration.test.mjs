@@ -27,7 +27,9 @@ const repository = new PostgresPersistence(pool);
 
 async function dropTestSchema() {
   await pool.query(`
-    DROP TABLE IF EXISTS gate_resolutions, gate_protections, gates, effect_reconciliations, effects, claims, execution_events, attempts, stage_executions, executions, flow_versions, flows CASCADE;
+    DROP TABLE IF EXISTS agent_provider_results, gate_resolutions, gate_protections, gates, effect_reconciliations, effects, claims, execution_events, attempts, stage_executions, executions, flow_versions, flows CASCADE;
+    DROP FUNCTION IF EXISTS aegisflow_reject_agent_provider_result_mutation();
+    DROP FUNCTION IF EXISTS aegisflow_validate_agent_provider_result();
     DROP FUNCTION IF EXISTS aegisflow_enforce_gate_protection();
     DROP FUNCTION IF EXISTS aegisflow_reject_gate_resolution_mutation();
     DROP FUNCTION IF EXISTS aegisflow_reject_effect_reconciliation_mutation();
@@ -38,7 +40,7 @@ async function dropTestSchema() {
 
 async function resetData() {
   await pool.query(
-    "TRUNCATE gate_resolutions, gate_protections, gates, effect_reconciliations, effects, claims, execution_events, attempts, stage_executions, executions, flow_versions, flows RESTART IDENTITY",
+    "TRUNCATE agent_provider_results, gate_resolutions, gate_protections, gates, effect_reconciliations, effects, claims, execution_events, attempts, stage_executions, executions, flow_versions, flows RESTART IDENTITY",
   );
 }
 
@@ -102,16 +104,28 @@ test("clean migration chain applies, rolls back, and reapplies", async () => {
     "0002_worker_claims",
     "0003_effect_ledger",
     "0004_durable_gates",
+    "0005_agent_provider_results",
   ]);
 
   const tables = await pool.query(
     `SELECT tablename
      FROM pg_tables
      WHERE schemaname = 'public'
-       AND tablename IN ('flows', 'flow_versions', 'executions', 'stage_executions', 'attempts', 'execution_events', 'claims', 'effects', 'effect_reconciliations', 'gates', 'gate_protections', 'gate_resolutions')
+       AND tablename IN ('flows', 'flow_versions', 'executions', 'stage_executions', 'attempts', 'execution_events', 'claims', 'effects', 'effect_reconciliations', 'gates', 'gate_protections', 'gate_resolutions', 'agent_provider_results')
      ORDER BY tablename`,
   );
-  assert.equal(tables.rowCount, 12);
+  assert.equal(tables.rowCount, 13);
+
+  assert.equal(await rollbackLastMigration(pool), "0005_agent_provider_results");
+  assert.equal(
+    (await pool.query("SELECT to_regclass('public.agent_provider_results') AS table_name")).rows[0]
+      .table_name,
+    null,
+  );
+  assert.notEqual(
+    (await pool.query("SELECT to_regclass('public.gates') AS table_name")).rows[0].table_name,
+    null,
+  );
 
   assert.equal(await rollbackLastMigration(pool), "0004_durable_gates");
   assert.equal(
@@ -162,6 +176,7 @@ test("clean migration chain applies, rolls back, and reapplies", async () => {
     "0002_worker_claims",
     "0003_effect_ledger",
     "0004_durable_gates",
+    "0005_agent_provider_results",
   ]);
 });
 
