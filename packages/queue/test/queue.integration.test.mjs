@@ -23,7 +23,9 @@ const queue = new PostgresWorkerQueue(pool);
 
 async function dropTestSchema() {
   await pool.query(`
-    DROP TABLE IF EXISTS effect_reconciliations, effects, claims, execution_events, attempts, stage_executions, executions, flow_versions, flows CASCADE;
+    DROP TABLE IF EXISTS gate_resolutions, gate_protections, gates, effect_reconciliations, effects, claims, execution_events, attempts, stage_executions, executions, flow_versions, flows CASCADE;
+    DROP FUNCTION IF EXISTS aegisflow_enforce_gate_protection();
+    DROP FUNCTION IF EXISTS aegisflow_reject_gate_resolution_mutation();
     DROP FUNCTION IF EXISTS aegisflow_reject_effect_reconciliation_mutation();
     DROP FUNCTION IF EXISTS aegisflow_reject_flow_version_mutation();
     DROP TABLE IF EXISTS aegisflow_schema_migrations;
@@ -32,7 +34,7 @@ async function dropTestSchema() {
 
 async function resetData() {
   await pool.query(
-    "TRUNCATE effect_reconciliations, effects, claims, execution_events, attempts, stage_executions, executions, flow_versions, flows RESTART IDENTITY",
+    "TRUNCATE gate_resolutions, gate_protections, gates, effect_reconciliations, effects, claims, execution_events, attempts, stage_executions, executions, flow_versions, flows RESTART IDENTITY",
   );
 }
 
