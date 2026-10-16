@@ -18,7 +18,7 @@
     "build": "npm run build:contracts --silent && npm run build:core --silent && npm run build:persistence --silent && npm run build:queue --silent",
     "clean": "node scripts/clean.mjs",
     "lint": "node scripts/lint.mjs",
-    "typecheck": "npm run build:contracts --silent && tsc -p packages/core/tsconfig.json --noEmit --pretty false && tsc -p packages/persistence/tsconfig.json --noEmit --pretty false && tsc -p packages/queue/tsconfig.json --noEmit --pretty false",
+    "typecheck": "npm run build:contracts --silent && npm run build:core --silent && npm run build:persistence --silent && tsc -p packages/queue/tsconfig.json --noEmit --pretty false",
     "test": "npm run build --silent && node --test packages/contracts/test/*.test.mjs packages/core/test/*.test.mjs",
     "test:postgres": "npm run build --silent && node --test --test-concurrency=1 packages/persistence/test/*.integration.test.mjs packages/queue/test/*.integration.test.mjs",
     "boundaries": "node scripts/check-boundaries.mjs",
