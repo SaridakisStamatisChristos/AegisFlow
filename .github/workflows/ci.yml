@@ -1,0 +1,25 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install toolchain
+        run: npm install --ignore-scripts
+      - name: Verify contracts and repository boundaries
+        run: npm run verify
+      - name: Audit runtime dependencies
+        run: npm audit --omit=dev --audit-level=high
