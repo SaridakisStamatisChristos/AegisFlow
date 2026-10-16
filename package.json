@@ -24,7 +24,8 @@
     "test:postgres": "npm run build --silent && node --test --test-concurrency=1 packages/persistence/test/*.integration.test.mjs packages/queue/test/*.integration.test.mjs packages/effects/test/*.integration.test.mjs",
     "boundaries": "node scripts/check-boundaries.mjs",
     "secret:scan": "node scripts/check-secrets.mjs",
-    "verify": "npm run lint && npm run typecheck && npm test && npm run boundaries && npm run secret:scan"
+    "manifest:pr5": "node scripts/hash-pr5-artifacts.mjs",
+    "verify": "npm run lint && npm run typecheck && npm test && npm run boundaries && npm run secret:scan && npm run manifest:pr5"
   },
   "devDependencies": {
     "@types/node": "22.20.5",
