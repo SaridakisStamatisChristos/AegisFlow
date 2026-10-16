@@ -3,11 +3,13 @@
 ## Decision summary
 
 AegisFlow uses a TypeScript/Node monorepo with PostgreSQL planned as the single
-reference durability substrate for V1. The core domain model remains independent
-of PostgreSQL, HTTP frameworks, model SDKs, and connector SDKs.
+reference durability substrate for V1. Domain contracts and pure state machines
+remain independent of PostgreSQL, HTTP frameworks, model SDKs, connector SDKs,
+wall-clock time, and randomness.
 
-PR1 intentionally implements only `@aegisflow/contracts`. Later packages are
-introduced when their runtime responsibility exists rather than as empty shells.
+PR1 introduced `@aegisflow/contracts`. PR2 introduces `@aegisflow/core` for pure,
+deterministic state-transition semantics only. Later packages appear when their
+runtime responsibility exists rather than as empty shells.
 
 ## Dependency rule
 
@@ -24,7 +26,8 @@ runtime
 ```
 
 Adapters point inward through contracts/interfaces. `contracts` may import only
-relative modules from itself. The CI boundary check enforces this today.
+relative modules from itself. `core` may import only `@aegisflow/contracts` plus
+relative modules from itself. CI enforces those boundaries.
 
 ## Why the hand-off architecture survives review
 
@@ -32,21 +35,27 @@ relative modules from itself. The CI boundary check enforces this today.
 
 The target runtime requires transactional ownership, leases, durable Gates,
 Signals, Effects, and ordered evidence. A relational database can express these
-without introducing another distributed subsystem in V1. This remains a design
-commitment, not a PR1 runtime claim.
+without introducing another distributed subsystem in V1. Persistence begins in
+PR3; PR2 deliberately does not simulate durability in memory.
 
-### Reject a general expression language in PR1
+### Keep state transitions pure
 
-The conceptual hand-off example used conditional notation. A general `when`
-expression language would silently create a parser/evaluator, security model,
-and compatibility contract. PR1 therefore models bounded `decision` Stages but
-does not introduce arbitrary expressions. Branch semantics belong to the state
-machine/runtime slices.
+PR2 state machines consume only current state plus an explicit event and return a
+frozen transition result. They perform no I/O, read no clock, and draw no
+randomness. This keeps retry, cancellation, Gate, and Effect semantics testable
+without conflating them with storage or worker ownership.
+
+### Reject a general expression language
+
+The conceptual hand-off example used conditional notation. A general expression
+language would silently create a parser/evaluator, security model, and compatibility
+contract. PR2 therefore resolves only an already-selected declared Decision choice;
+it does not evaluate arbitrary expressions.
 
 ### Reject arbitrary transform scripting
 
-`transform` is declarative mapping only. Arbitrary JavaScript would violate the
-V1 non-goal of arbitrary code execution and blur the authority boundary.
+`transform` remains declarative mapping only. Arbitrary JavaScript would violate
+the V1 non-goal of arbitrary code execution and blur the authority boundary.
 
 ### Keep Agent Stages bounded
 
@@ -82,8 +91,14 @@ Applications later consume those packages: API, worker, CLI, then operator web.
 7. External response -> classified success/failure/ambiguous result.
 8. Runtime events -> redacted structured Evidence.
 
-## Current PR1 guarantees
+## Current PR2 guarantees
 
-PR1 can only claim validated Flow contracts and immutable in-memory version
-snapshots. It does **not** yet claim durable recovery, database immutability,
-fencing, Effect idempotency, Gate durability, or production readiness.
+PR2 can claim deterministic in-memory transition semantics for Execution,
+StageExecution, Attempt, Gate, Effect, and declared Decision branch selection.
+Terminal states do not revive; cancellation is monotonic; retries allocate a new
+Attempt sequence; conflicting Gate decisions fail; ambiguous Effects cannot blind
+replay.
+
+PR2 does **not** claim durable recovery, database correctness, dependency scheduling,
+lease fencing, external-effect idempotency, durable Gate persistence, connector or
+provider correctness, or production readiness.

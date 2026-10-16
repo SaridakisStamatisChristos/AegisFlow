@@ -15,23 +15,26 @@ The design centers four properties:
 - **Evidential:** execution history is a product primitive rather than an
   after-the-fact log reconstruction exercise.
 
-## Current state — PR1 foundation/contracts
+## Current state — PR2 deterministic core
 
-This repository currently implements the first roadmap slice only:
+The repository now contains the first two roadmap slices:
 
-- strict TypeScript contract package with no runtime framework dependencies;
-- opaque domain IDs;
-- canonical Flow definition and eight bounded Stage kinds;
-- runtime Flow validation;
-- duplicate, missing-dependency, and DAG-cycle rejection;
-- execution, stage, attempt, Gate, and Effect state vocabularies;
-- immutable Flow-version snapshots;
-- contract tests and architecture-boundary checks;
-- initial architecture, state-machine, persistence, Gate/Effect, and R7 evidence docs.
+- `@aegisflow/contracts`: opaque IDs, bounded Flow/Stage contracts, validation,
+  immutable Flow-version snapshots, and public state vocabularies;
+- `@aegisflow/core`: pure deterministic state machines for Executions,
+  StageExecutions, Attempts, Gates, and Effects;
+- monotonic terminal/cancellation semantics and explicit invalid-transition errors;
+- retry sequence allocation without reopening prior Attempts;
+- idempotent identical Gate decisions with deterministic conflict rejection;
+- reconciliation as a terminal Effect outcome so ambiguous external effects cannot
+  blind-replay;
+- deterministic Decision branch resolution without adding a general expression
+  language;
+- adversarial tests for malformed inputs and terminal-state revival;
+- architecture-boundary checks keeping `core` dependent only on `contracts`.
 
-PostgreSQL persistence, workers/leases, runtime Effects, durable Gates, providers,
-connectors, API/SDK/CLI, and the operator console are deliberately **not**
-implemented in this slice.
+PostgreSQL persistence, workers/leases, durable Effects and Gates, providers,
+connectors, API/SDK/CLI, and the operator console remain later roadmap slices.
 
 ## Architecture direction
 
@@ -58,8 +61,8 @@ flows / versions / executions / attempts /
 effects / gates / signals / evidence
 ```
 
-The contract package intentionally sits at the center and imports no database,
-HTTP framework, or model-provider SDK.
+The current code keeps contracts framework-free and keeps the pure core free of
+persistence, HTTP, model-provider, connector, clock, randomness, and worker logic.
 
 ## Local verification
 
@@ -70,9 +73,6 @@ dependency.
 npm install
 npm run verify
 ```
-
-For a source-only environment that already has TypeScript 5.8.3 available, the
-same checks can be run without fetching packages.
 
 ## Minimal contract example
 
@@ -108,10 +108,29 @@ const flow = validateFlowDefinition({
 });
 ```
 
+## Minimal state-machine example
+
+```ts
+import {
+  nextAttemptSequence,
+  transitionExecution,
+  transitionGate,
+} from "@aegisflow/core";
+
+transitionExecution("PENDING", "START");
+// => { from: "PENDING", event: "START", to: "RUNNING", changed: true }
+
+transitionGate("APPROVED", "APPROVE");
+// => identical duplicate decision, changed: false
+
+nextAttemptSequence(2);
+// => 3; retry creates a new Attempt sequence instead of reopening sequence 2
+```
+
 ## Roadmap
 
-1. Foundation and contracts — **current slice**
-2. Pure deterministic state machines
+1. Foundation and contracts — **complete**
+2. Pure deterministic state machines — **current slice**
 3. PostgreSQL persistence
 4. Durable queue, worker leases, and generation fencing
 5. Effect ledger and reconciliation
@@ -123,8 +142,9 @@ const flow = validateFlowDefinition({
 11. Operator console
 12. Deterministic demos, failure injection, and benchmarks
 
-See [`docs/architecture.md`](docs/architecture.md) and
-[`docs/r7-evidence.md`](docs/r7-evidence.md).
+See [`docs/architecture.md`](docs/architecture.md),
+[`docs/state-machines.md`](docs/state-machines.md), and
+[`docs/r7-pr2-evidence.md`](docs/r7-pr2-evidence.md).
 
 ## License
 

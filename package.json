@@ -11,11 +11,13 @@
     "node": ">=22 <23"
   },
   "scripts": {
-    "build": "tsc -p packages/contracts/tsconfig.json",
+    "build:contracts": "tsc -p packages/contracts/tsconfig.json",
+    "build:core": "tsc -p packages/core/tsconfig.json",
+    "build": "npm run build:contracts --silent && npm run build:core --silent",
     "clean": "node scripts/clean.mjs",
     "lint": "node scripts/lint.mjs",
-    "typecheck": "tsc -p packages/contracts/tsconfig.json --noEmit --pretty false",
-    "test": "npm run build --silent && node --test packages/contracts/test/*.test.mjs",
+    "typecheck": "npm run build:contracts --silent && tsc -p packages/core/tsconfig.json --noEmit --pretty false",
+    "test": "npm run build --silent && node --test packages/contracts/test/*.test.mjs packages/core/test/*.test.mjs",
     "boundaries": "node scripts/check-boundaries.mjs",
     "secret:scan": "node scripts/check-secrets.mjs",
     "verify": "npm run lint && npm run typecheck && npm test && npm run boundaries && npm run secret:scan"
