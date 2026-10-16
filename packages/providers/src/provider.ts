@@ -95,12 +95,18 @@ function parseJson(value: unknown, path: string, depth = 0): JsonValue {
     if (entries.length > 1_024) {
       throw new AgentRuntimeError("MALFORMED_PROVIDER_RESPONSE", `${path} has too many properties.`);
     }
-    const output: Record<string, JsonValue> = Object.create(null);
+    const output: Record<string, JsonValue> = {};
     for (const [key, child] of entries) {
       if (key.length === 0 || key.length > 256) {
         throw new AgentRuntimeError("MALFORMED_PROVIDER_RESPONSE", `${path} contains an invalid key.`);
       }
-      output[key] = parseJson(child, `${path}.${key}`, depth + 1);
+      const parsed = parseJson(child, `${path}.${key}`, depth + 1);
+      Object.defineProperty(output, key, {
+        value: parsed,
+        enumerable: true,
+        writable: false,
+        configurable: false,
+      });
     }
     return Object.freeze(output);
   }
