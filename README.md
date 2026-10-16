@@ -15,26 +15,27 @@ The design centers four properties:
 - **Evidential:** execution history is a product primitive rather than an
   after-the-fact log reconstruction exercise.
 
-## Current state — PR3 PostgreSQL persistence
+## Current state — PR4 durable worker authority
 
-The repository now contains three bounded roadmap layers:
+The repository now contains four bounded roadmap layers:
 
 - `@aegisflow/contracts`: opaque IDs, Flow/Stage contracts, validation, immutable
-  in-memory Flow-version snapshots, and public state vocabularies;
+  Flow-version snapshots, and public state vocabularies;
 - `@aegisflow/core`: pure deterministic Execution, StageExecution, Attempt, Gate,
   Effect, cancellation, retry, and Decision transition logic;
 - `@aegisflow/persistence`: PostgreSQL migrations and reference repositories for
-  Flows, Flow Versions, Executions, StageExecutions, Attempts, and ordered
-  execution evidence.
+  durable workflow state and ordered execution evidence;
+- `@aegisflow/queue`: PostgreSQL-backed worker claims, leases, monotonic fencing
+  generations, heartbeats, expiry, and abandoned-work recovery.
 
-PR3 adds database-enforced Flow-Version immutability, composite Flow/Flow-Version
-integrity, atomic Execution + initial Stage materialization, retry-sequence
-uniqueness, compare-and-set storage primitives, and concurrent event ordering.
-Persistence does not decide whether a state transition is legal; callers must use
-the pure core semantics.
+PR4 keeps every worker claim as historical evidence tied to one Attempt. A Stage can
+have only one active Claim; recovery expires the abandoned Claim, times out its
+Attempt, then issues a new Attempt and higher generation. Completion must present
+the exact live owner/Attempt/generation and an unexpired lease, so stale workers
+cannot authoritatively finish recovered work.
 
-Worker claims/leases/fencing, durable Effects and Gates, providers, connectors,
-API/SDK/CLI, and the operator console remain later roadmap slices.
+The Effect ledger/idempotency layer, durable Gates, providers, connectors,
+API/SDK/CLI, and operator console remain later roadmap slices.
 
 ## Architecture direction
 
@@ -57,13 +58,13 @@ Control API ---- Flow Registry
         External systems
 
         PostgreSQL (V1)
-flows / versions / executions / attempts /
-effects / gates / signals / evidence
+flows / versions / executions / stages / attempts /
+claims / effects / gates / signals / evidence
 ```
 
-Current package boundaries keep contracts framework-free, core persistence-free,
-and the PostgreSQL adapter dependent only on contracts plus the database/Node
-adapter surface.
+Current boundaries keep contracts framework-free, core persistence-free,
+persistence free of worker authority, and queue explicitly dependent on core +
+persistence for legal-transition and transactional storage services.
 
 ## Local verification
 
@@ -142,8 +143,8 @@ nextAttemptSequence(2);
 
 1. Foundation and contracts — **complete**
 2. Pure deterministic state machines — **complete**
-3. PostgreSQL persistence — **current slice**
-4. Durable queue, worker leases, and generation fencing
+3. PostgreSQL persistence — **complete**
+4. Durable queue, worker leases, and generation fencing — **current slice**
 5. Effect ledger and reconciliation
 6. Durable human Gates
 7. Provider abstraction and Agent Stage runtime
@@ -155,8 +156,9 @@ nextAttemptSequence(2);
 
 See [`docs/architecture.md`](docs/architecture.md),
 [`docs/state-machines.md`](docs/state-machines.md),
-[`docs/persistence-model.md`](docs/persistence-model.md), and
-[`docs/r7-pr3-evidence.md`](docs/r7-pr3-evidence.md).
+[`docs/persistence-model.md`](docs/persistence-model.md),
+[`docs/queue-workers.md`](docs/queue-workers.md), and
+[`docs/r7-pr4-evidence.md`](docs/r7-pr4-evidence.md).
 
 ## License
 

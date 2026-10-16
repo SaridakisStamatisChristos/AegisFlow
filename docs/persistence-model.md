@@ -1,8 +1,8 @@
 # PostgreSQL persistence model
 
-PR3 establishes PostgreSQL as AegisFlow's reference durable storage adapter. It
-persists domain state but does not define domain transition semantics; those stay
-in `@aegisflow/core`.
+PostgreSQL is AegisFlow's reference durable storage and coordination substrate for
+V1. Persistence stores domain state; `@aegisflow/core` defines legal transitions;
+`@aegisflow/queue` composes those semantics with durable worker authority.
 
 Reference CI target: PostgreSQL 17.
 
@@ -10,78 +10,89 @@ Reference CI target: PostgreSQL 17.
 
 ### `flows`
 
-Stable Flow identity plus mutable descriptive metadata. PR3 exposes create/read
-only; later APIs may add metadata updates without changing version snapshots.
+Stable Flow identity plus mutable descriptive metadata.
 
 ### `flow_versions`
 
 Append-only immutable snapshots keyed by `(flow_id, version)` and unique
-Flow-Version ID. A database trigger rejects `UPDATE` and `DELETE`. Each Execution
-pins one row, and a composite foreign key enforces that the pinned version belongs
-to the same Flow ID stored on the Execution.
+Flow-Version ID. A trigger rejects `UPDATE` and `DELETE`; a composite foreign key
+ensures an Execution cannot pin another Flow's version.
 
 ### `executions`
 
-Execution identity, pinned Flow and Flow-Version IDs, current state, and lifecycle
-timestamps. Storage exposes compare-and-set state updates; callers remain
-responsible for validating the transition through the pure PR2 state machine.
+Execution identity, pinned Flow/Flow-Version IDs, current state, and lifecycle
+timestamps.
 
 ### `stage_executions`
 
 One logical Stage instance per Execution, enforced by
-`UNIQUE (execution_id, stage_id)`. Creation of an Execution and its initial Stage
-rows is one transaction.
+`UNIQUE (execution_id, stage_id)`. Execution creation and initial Stage rows are
+atomic.
 
 ### `attempts`
 
-Attempt history is preserved by unique `(stage_execution_id, sequence)` rows.
-Retrying creates a new sequence instead of overwriting an earlier Attempt.
-Attempt state updates use compare-and-set storage primitives; retry policy remains
-core/runtime logic.
+Append-only work-attempt history with unique `(stage_execution_id, sequence)`.
+Retries and worker recovery create a new sequence instead of reopening history.
 
 ### `execution_events`
 
-Structured JSON-object evidence with an immutable database-assigned `position`.
-The identity column gives concurrent inserts a total persisted order. Event IDs
-remain caller-supplied AegisFlow `EvidenceId` values and are unique.
+Structured JSON-object evidence with a database-assigned identity `position`, giving
+concurrent inserts a total persisted order.
+
+### `claims`
+
+PR4 adds durable worker authority. Each Claim is permanently tied to one Attempt and
+contains:
+
+- StageExecution ID;
+- worker owner ID;
+- positive monotonic generation;
+- `ACTIVE`, `COMPLETED`, or `EXPIRED` state;
+- claimed, heartbeat, lease-expiry, and optional finished timestamps.
+
+A partial unique index permits at most one `ACTIVE` Claim per StageExecution. A
+unique `(stage_execution_id, generation)` constraint makes generations durable
+fencing tokens. Historical completed/expired Claims remain stored.
 
 ## Transaction boundaries
 
-PR3 defines these boundaries explicitly:
+1. **Migrations:** each migration is applied transactionally while an advisory lock
+   serializes migrators.
+2. **Execution bootstrap:** Execution plus initial StageExecution rows commit or
+   roll back together.
+3. **PR3 compare-and-set:** concurrent expected-state writers cannot both win one
+   state predicate.
+4. **Claim acquisition:** the StageExecution row is locked before active-Claim
+   inspection and new Attempt/Claim creation.
+5. **Recovery:** expired Claim -> old Attempt `TIMED_OUT` -> Claim `EXPIRED` -> new
+   Attempt + higher-generation Claim occurs in one transaction.
+6. **Authoritative completion:** StageExecution, Attempt, and matching Claim are
+   validated/updated in one transaction; stale generations cannot commit.
+7. **Heartbeat:** one conditional SQL update extends only the exact live,
+   unexpired owner/Attempt/generation.
+8. **Evidence append:** one insert allocates the persisted event order position and
+   stores the event payload.
 
-1. **Migration file:** each migration is applied in one transaction while a
-   PostgreSQL advisory lock serializes concurrent migrators.
-2. **Execution bootstrap:** the Execution row and all initial StageExecution rows
-   commit or roll back together.
-3. **State write:** compare-and-set updates are one SQL statement, so concurrent
-   writers cannot both commit against the same expected state.
-4. **Flow-Version append:** insertion is one statement; database uniqueness and an
-   immutability trigger prevent replacement or mutation.
-5. **Attempt append:** uniqueness of `(stage_execution_id, sequence)` prevents a
-   retry from replacing prior history.
-6. **Evidence append:** one insert atomically allocates the database order position
-   and persists the event payload.
-
-PostgreSQL's default `READ COMMITTED` isolation is sufficient for these PR3
-primitives because conflicting state writes use predicates/constraints rather than
-read-then-write application races. PR4 will add row ownership, leases, generation
-fencing, heartbeat/expiry, and abandoned-work recovery.
+PostgreSQL `READ COMMITTED` is the current reference isolation level. PR4's
+authority-sensitive paths rely on row locks, conditional writes, and database
+constraints rather than application read-then-write races.
 
 ## Migration lifecycle
 
-Migration files live in `packages/persistence/migrations` and are paired as
-`*.up.sql` / `*.down.sql`. Applied IDs are recorded in
-`aegisflow_schema_migrations`. The runner serializes migration execution with an
-advisory lock.
+Migrations live in `packages/persistence/migrations` as paired `*.up.sql` /
+`*.down.sql` files and are tracked in `aegisflow_schema_migrations`.
 
-`rollbackLastMigration` exists for development/test rollback validation. It is a
-destructive operation and is never invoked automatically by runtime code.
+Current chain:
 
-## Deliberately not implemented in PR3
+1. `0001_initial` — Flow/runtime persistence and ordered evidence.
+2. `0002_worker_claims` — durable worker Claims, generations, and lease indexes.
 
-The following remain later roadmap slices:
+The integration suite verifies clean apply, rollback of `0002` while retaining the
+PR3 schema, rollback of `0001`, and reapplication of the full chain.
 
-- worker claims, leases, generation fencing, heartbeat, and recovery — PR4;
-- Effect ledger/idempotency/reconciliation storage — PR5;
+## Still outside this slice
+
+- Effect ledger/idempotency/reconciliation — PR5;
 - durable Gates and approval evidence — PR6;
-- Signals, providers, connectors, API/SDK/CLI, and operator UI.
+- Signals, providers, connectors, API/SDK/CLI, background recovery service, and
+  operator UI.

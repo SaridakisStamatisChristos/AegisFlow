@@ -27,7 +27,7 @@ const repository = new PostgresPersistence(pool);
 
 async function dropTestSchema() {
   await pool.query(`
-    DROP TABLE IF EXISTS execution_events, attempts, stage_executions, executions, flow_versions, flows CASCADE;
+    DROP TABLE IF EXISTS claims, execution_events, attempts, stage_executions, executions, flow_versions, flows CASCADE;
     DROP FUNCTION IF EXISTS aegisflow_reject_flow_version_mutation();
     DROP TABLE IF EXISTS aegisflow_schema_migrations;
   `);
@@ -35,7 +35,7 @@ async function dropTestSchema() {
 
 async function resetData() {
   await pool.query(
-    "TRUNCATE execution_events, attempts, stage_executions, executions, flow_versions, flows RESTART IDENTITY",
+    "TRUNCATE claims, execution_events, attempts, stage_executions, executions, flow_versions, flows RESTART IDENTITY",
   );
 }
 
@@ -92,24 +92,32 @@ test.after(async () => {
   await pool.end();
 });
 
-test("clean migration applies, rolls back, and reapplies", async () => {
+test("clean migration chain applies, rolls back, and reapplies", async () => {
   const applied = await migrateUp(pool);
-  assert.deepEqual(applied, ["0001_initial"]);
+  assert.deepEqual(applied, ["0001_initial", "0002_worker_claims"]);
 
   const tables = await pool.query(
     `SELECT tablename
      FROM pg_tables
      WHERE schemaname = 'public'
-       AND tablename IN ('flows', 'flow_versions', 'executions', 'stage_executions', 'attempts', 'execution_events')
+       AND tablename IN ('flows', 'flow_versions', 'executions', 'stage_executions', 'attempts', 'execution_events', 'claims')
      ORDER BY tablename`,
   );
-  assert.equal(tables.rowCount, 6);
+  assert.equal(tables.rowCount, 7);
+
+  assert.equal(await rollbackLastMigration(pool), "0002_worker_claims");
+  const claimsRemoved = await pool.query("SELECT to_regclass('public.claims') AS table_name");
+  assert.equal(claimsRemoved.rows[0].table_name, null);
+  assert.notEqual(
+    (await pool.query("SELECT to_regclass('public.flows') AS table_name")).rows[0].table_name,
+    null,
+  );
 
   assert.equal(await rollbackLastMigration(pool), "0001_initial");
   const removed = await pool.query("SELECT to_regclass('public.flows') AS table_name");
   assert.equal(removed.rows[0].table_name, null);
 
-  assert.deepEqual(await migrateUp(pool), ["0001_initial"]);
+  assert.deepEqual(await migrateUp(pool), ["0001_initial", "0002_worker_claims"]);
 });
 
 test("Flow, immutable FlowVersion, Execution, StageExecution, Attempt, and event round-trip", async () => {
