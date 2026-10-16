@@ -9,15 +9,15 @@ AgentForge/RelayForge codebase.
 The design centers four properties:
 
 - **Governed:** model reasoning and execution authority are separate.
-- **Durable:** important execution state is designed to survive process failure.
+- **Durable:** important execution state survives process failure.
 - **Recoverable:** retries, waits, signals, worker failure, and ambiguous effects
   have explicit semantics.
 - **Evidential:** execution history is a product primitive rather than an
   after-the-fact log reconstruction exercise.
 
-## Current state — PR4 durable worker authority
+## Current state — PR5 durable Effect authority
 
-The repository now contains four bounded roadmap layers:
+The repository now contains five bounded roadmap layers:
 
 - `@aegisflow/contracts`: opaque IDs, Flow/Stage contracts, validation, immutable
   Flow-version snapshots, and public state vocabularies;
@@ -26,16 +26,25 @@ The repository now contains four bounded roadmap layers:
 - `@aegisflow/persistence`: PostgreSQL migrations and reference repositories for
   durable workflow state and ordered execution evidence;
 - `@aegisflow/queue`: PostgreSQL-backed worker claims, leases, monotonic fencing
-  generations, heartbeats, expiry, and abandoned-work recovery.
+  generations, heartbeats, expiry, and abandoned-work recovery;
+- `@aegisflow/effects`: durable external-side-effect identity, duplicate planning
+  convergence, claim authority, terminal outcome visibility, and immutable
+  reconciliation evidence.
 
-PR4 keeps every worker claim as historical evidence tied to one Attempt. A Stage can
-have only one active Claim; recovery expires the abandoned Claim, times out its
-Attempt, then issues a new Attempt and higher generation. Completion must present
-the exact live owner/Attempt/generation and an unexpired lease, so stale workers
-cannot authoritatively finish recovered work.
+PR5 gives one logical external side effect a stable `effectKey` scoped to an
+Execution. The ledger stores a SHA-256 digest of canonical intent rather than raw
+connector payload. Reusing the same key for different intent fails closed;
+concurrent identical planning converges on one Effect. A successful Effect suppresses
+replay. A known failure remains terminal. An ambiguous outcome becomes
+`RECONCILIATION_REQUIRED` and cannot be called again until reconciliation records
+what actually happened externally.
 
-The Effect ledger/idempotency layer, durable Gates, providers, connectors,
-API/SDK/CLI, and operator console remain later roadmap slices.
+AegisFlow does **not** claim generic exactly-once external execution. PR5 prevents
+blind replay inside the runtime; future connectors must still use provider-native
+idempotency and reconciliation capabilities where available.
+
+Durable human Gates, providers, connectors, API/SDK/CLI, and the operator console
+remain later roadmap slices.
 
 ## Architecture direction
 
@@ -55,16 +64,18 @@ Control API ---- Flow Registry
        /      |       \
  Providers Connectors Tasks
               |
+         Effect Ledger
+              |
         External systems
 
         PostgreSQL (V1)
 flows / versions / executions / stages / attempts /
-claims / effects / gates / signals / evidence
+claims / effects / reconciliations / gates / signals / evidence
 ```
 
 Current boundaries keep contracts framework-free, core persistence-free,
-persistence free of worker authority, and queue explicitly dependent on core +
-persistence for legal-transition and transactional storage services.
+persistence free of worker/Effect authority, and queue/effects explicitly dependent
+on core + persistence for legal-transition and transactional storage services.
 
 ## Local verification
 
@@ -120,23 +131,25 @@ const flow = validateFlowDefinition({
 });
 ```
 
-## Minimal state-machine example
+## Minimal Effect-ledger example
 
 ```ts
-import {
-  nextAttemptSequence,
-  transitionExecution,
-  transitionGate,
-} from "@aegisflow/core";
+import { parseEffectId } from "@aegisflow/contracts";
+import { PostgresEffectLedger } from "@aegisflow/effects";
 
-transitionExecution("PENDING", "START");
-// => { from: "PENDING", event: "START", to: "RUNNING", changed: true }
+const effects = new PostgresEffectLedger(pool);
+const planned = await effects.planEffect({
+  id: parseEffectId("effect_example01"),
+  executionId,
+  stageExecutionId,
+  effectKey: "notify:incident:42",
+  intent: { connector: "slack", operation: "send_message", incidentId: 42 },
+});
 
-transitionGate("APPROVED", "APPROVE");
-// => identical duplicate decision, changed: false
-
-nextAttemptSequence(2);
-// => 3; retry creates a new Attempt sequence instead of reopening sequence 2
+const authority = await effects.claimEffect(planned.effect.id);
+if (authority.disposition === "CLAIMED") {
+  // Only now may the connector call be attempted.
+}
 ```
 
 ## Roadmap
@@ -144,8 +157,8 @@ nextAttemptSequence(2);
 1. Foundation and contracts — **complete**
 2. Pure deterministic state machines — **complete**
 3. PostgreSQL persistence — **complete**
-4. Durable queue, worker leases, and generation fencing — **current slice**
-5. Effect ledger and reconciliation
+4. Durable queue, worker leases, and generation fencing — **complete**
+5. Effect ledger and reconciliation — **current slice**
 6. Durable human Gates
 7. Provider abstraction and Agent Stage runtime
 8. HTTP/GitHub/Slack connectors
@@ -157,8 +170,9 @@ nextAttemptSequence(2);
 See [`docs/architecture.md`](docs/architecture.md),
 [`docs/state-machines.md`](docs/state-machines.md),
 [`docs/persistence-model.md`](docs/persistence-model.md),
-[`docs/queue-workers.md`](docs/queue-workers.md), and
-[`docs/r7-pr4-evidence.md`](docs/r7-pr4-evidence.md).
+[`docs/queue-workers.md`](docs/queue-workers.md),
+[`docs/effect-ledger.md`](docs/effect-ledger.md), and
+[`docs/r7-pr5-evidence.md`](docs/r7-pr5-evidence.md).
 
 ## License
 

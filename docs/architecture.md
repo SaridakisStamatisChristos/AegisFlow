@@ -8,9 +8,9 @@ independent of PostgreSQL, HTTP frameworks, model SDKs, connector SDKs, wall-clo
 time, and randomness.
 
 PR1 introduced `@aegisflow/contracts`. PR2 introduced `@aegisflow/core`. PR3 added
-`@aegisflow/persistence`. PR4 adds `@aegisflow/queue`, which composes core transition
-semantics with PostgreSQL transactions to establish worker authority without moving
-workflow semantics into the database adapter.
+`@aegisflow/persistence`. PR4 added `@aegisflow/queue`. PR5 adds
+`@aegisflow/effects`, which composes the pure Effect state machine with durable
+identity, idempotency, outcome visibility, and reconciliation evidence.
 
 ## Dependency rule
 
@@ -27,14 +27,17 @@ The current enforced package edges are:
         |
 @aegisflow/persistence ---> pg / Node filesystem only
         ^
+        |\
+        | +---- @aegisflow/queue ----> @aegisflow/core + pg
         |
-@aegisflow/queue -------> @aegisflow/core + pg
+        +------ @aegisflow/effects --> @aegisflow/core + pg + node:crypto
 ```
 
 `contracts` imports only relative modules. `core` imports only `contracts` plus
-relative modules. `persistence` imports only `contracts`, PostgreSQL, Node migration
-I/O, and relative modules. `queue` may depend on contracts, core, persistence, and
-PostgreSQL. Persistence does **not** depend on queue.
+relative modules. `persistence` imports only contracts, PostgreSQL, Node migration
+I/O, and relative modules. Queue and Effects may depend on contracts, core,
+persistence, and PostgreSQL; Effects additionally uses Node cryptography to digest
+canonical intent. Persistence does **not** depend back on queue or effects.
 
 ## Architectural invariants
 
@@ -42,44 +45,60 @@ PostgreSQL. Persistence does **not** depend on queue.
 
 The target runtime requires transactional ownership, leases, durable Gates,
 Signals, Effects, and ordered evidence. PostgreSQL remains the only required durable
-coordination substrate in V1; PR4 does not introduce Redis, Kafka, RabbitMQ, NATS,
+coordination substrate in V1; PR5 does not introduce Redis, Kafka, RabbitMQ, NATS,
 or Kubernetes.
 
 ### Pure domain transitions
 
-PR2 remains authoritative for legal Attempt and StageExecution transitions. PR4
-uses those transition functions while PostgreSQL supplies serialization, durable
-leases, and fencing. The queue does not invent a second state-machine policy.
+PR2 remains authoritative for legal Effect transitions. PR5 calls
+`transitionEffect` for `PLANNED -> CLAIMED -> terminal` and never adds a hidden
+terminal-state escape hatch. PostgreSQL serializes authority and persistence; it
+does not replace the core state machine.
 
-### Immutable Flow Versions and atomic bootstrap
+### Worker authority remains separate from Effect authority
 
-Flow Versions remain append-only and database-protected. Execution creation plus
-initial Stage materialization stays one transaction.
+PR4 answers **which worker may advance Stage work**. PR5 answers **whether a logical
+external side effect may be attempted or replayed**. A worker Claim is therefore
+not sufficient authority to repeat an Effect. Later connector execution must hold
+both the relevant Stage authority and Effect authority.
 
-### Worker authority is explicit
+### Stable Effect identity
 
-A Claim is durable authority for exactly one Attempt on one StageExecution. Claims
-carry owner, lease expiry, and a monotonically increasing generation. The database
-allows only one `ACTIVE` Claim per Stage. Completion must match the live
-StageExecution, Attempt, owner, generation, and unexpired lease.
+`effectKey` is unique within one Execution. Planning the same key and canonical
+intent concurrently converges on one durable Effect. Reusing a key for a different
+Stage or intent is rejected instead of silently aliasing two side effects.
 
-### Recovery preserves history
+### Intent digest instead of raw connector payload
 
-A recovered expired Claim is retained as `EXPIRED`; its Attempt becomes
-`TIMED_OUT`. The replacement worker gets a new Attempt sequence and a larger
-fencing generation. Earlier workers therefore remain observable but cannot regain
-authority.
+PR5 canonicalizes JSON intent and stores only its SHA-256 digest in the Effect
+ledger. This lets duplicate planning prove intent equality without making the
+ledger a second store of connector payloads or secrets.
 
-### Database clock for leases
+### No generic exactly-once claim
 
-Lease expiry and heartbeat extension use PostgreSQL `clock_timestamp()`. Worker
-wall clocks do not decide authority.
+The ledger prevents runtime-level blind replay but cannot make an arbitrary remote
+system exactly-once. Future connectors should forward stable idempotency keys or use
+provider-native reconciliation where available.
 
-### Consistent lock order
+### Ambiguity is quarantined
 
-Claim, recovery, and completion paths lock durable records in the same conceptual
-order: StageExecution -> Claim -> Attempt. This keeps authority changes serialized
-and avoids an obvious application-level lock-order inversion.
+A connector outcome known to have succeeded becomes `SUCCEEDED`; known failure
+becomes `FAILED`; uncertainty becomes `RECONCILIATION_REQUIRED`. The ambiguous state
+cannot be claimed again. Reconciliation is written to a separate immutable table,
+so confirming what happened externally does not rewrite the original terminal
+Effect state.
+
+### Reconciliation does not silently authorize retries
+
+Confirmed success suppresses future replay. Confirmed failure remains visible and
+blocked from automatic replay. A future connector/runtime retry policy must be
+explicitly designed; PR5 does not reinterpret a terminal failure as fresh authority.
+
+### Immutable Flow Versions and recovery history
+
+Earlier invariants remain: Flow Versions are append-only, Execution bootstrap is
+atomic, worker Claims retain historical generations, expired Attempts are timed
+out rather than overwritten, and stale workers are fenced.
 
 ## Package roadmap
 
@@ -87,9 +106,9 @@ and avoids an obvious application-level lock-order inversion.
 - `@aegisflow/core` — pure state machines and retry/cancellation semantics.
 - `@aegisflow/persistence` — PostgreSQL migrations and reference repositories.
 - `@aegisflow/queue` — claims, leases, fencing, heartbeat, expiry, recovery.
+- `@aegisflow/effects` — durable Effect identity, idempotency, and reconciliation.
 - `@aegisflow/flows` — graph scheduling and version semantics.
 - `@aegisflow/policy` — deterministic allow/require-gate/deny decisions.
-- `@aegisflow/effects` — idempotency and reconciliation ledger.
 - `@aegisflow/gates` — durable human approval lifecycle.
 - `@aegisflow/providers` — model provider adapters.
 - `@aegisflow/connectors` — typed external actions.
@@ -105,24 +124,31 @@ Applications later consume those packages: API, worker, CLI, then operator web.
 3. Worker -> Claim owner + lease + generation fencing authority.
 4. Model output -> schema validation + deterministic policy.
 5. Policy -> optional durable Gate.
-6. Approved Action -> Effect ledger -> connector.
-7. External response -> classified success/failure/ambiguous result.
-8. Runtime events -> redacted structured Evidence.
+6. Approved Action -> Effect planning + Effect claim authority.
+7. Effect-authorized request -> connector/provider-native idempotency surface.
+8. External response -> classified success/failure/ambiguous result.
+9. Ambiguous response -> immutable reconciliation evidence before replay decisions.
+10. Runtime events -> redacted structured Evidence.
 
-## Current PR4 guarantees
+## Current PR5 guarantees
 
 For the PostgreSQL 17 reference target, the executed integration suite demonstrates:
 
-- concurrent claimers produce exactly one authoritative worker;
-- only the matching live owner/Attempt/generation can heartbeat or complete;
-- an expired lease cannot be resurrected by heartbeat or completion;
-- recovery times out the abandoned Attempt before issuing a higher generation;
-- stale completion after recovery is rejected;
-- two concurrent finishers cannot both authoritatively finish one generation;
-- repeated recovery preserves monotonically increasing generations and complete
-  Attempt/Claim history;
-- migration `0002_worker_claims` rolls back and reapplies without regressing PR3.
+- concurrent identical planning converges on one Effect row;
+- same `effectKey` with different canonical intent fails closed;
+- two concurrent claimers cannot both gain external-call authority;
+- successful Effects suppress accidental replay;
+- known failures remain terminal and visible;
+- ambiguous outcomes become `RECONCILIATION_REQUIRED` and block replay;
+- identical reconciliation is idempotent while conflicting reconciliation fails;
+- confirmed success suppresses replay without mutating the original terminal state;
+- confirmed failure remains blocked from automatic replay;
+- two completion writers cannot both resolve one claimed Effect;
+- Effect Execution/Stage ownership is enforced;
+- reconciliation rows are database-enforced immutable evidence;
+- migration `0003_effect_ledger` rolls back/reapplies while preserving PR3/PR4
+  regression coverage.
 
-PR4 does **not** claim Effect idempotency/reconciliation, durable human Gate
-behavior, a background recovery sweeper, provider/connector correctness, HA/backup
+PR5 does **not** claim provider/connector exactly-once behavior, connector-specific
+retry policy, durable human Gates, PostgreSQL-major-version portability, HA/backup
 readiness, deployment readiness, or production/SOTA performance.
