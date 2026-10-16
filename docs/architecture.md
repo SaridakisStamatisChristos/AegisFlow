@@ -7,14 +7,12 @@ durability substrate for V1. Domain contracts and pure state machines remain
 independent of PostgreSQL, HTTP frameworks, model SDKs, connector SDKs, wall-clock
 time, and randomness.
 
-PR1 introduced `@aegisflow/contracts`. PR2 introduced `@aegisflow/core`. PR3 added
-`@aegisflow/persistence`. PR4 added `@aegisflow/queue`. PR5 adds
-`@aegisflow/effects`, which composes the pure Effect state machine with durable
-identity, idempotency, outcome visibility, and reconciliation evidence.
+PR1 introduced `@aegisflow/contracts`; PR2 `@aegisflow/core`; PR3
+`@aegisflow/persistence`; PR4 `@aegisflow/queue`; PR5 `@aegisflow/effects`; and PR6
+adds `@aegisflow/gates` for durable human approval authority and protected-work
+enforcement.
 
 ## Dependency rule
-
-The current enforced package edges are:
 
 ```text
 @aegisflow/contracts
@@ -29,76 +27,71 @@ The current enforced package edges are:
         ^
         |\
         | +---- @aegisflow/queue ----> @aegisflow/core + pg
+        | +---- @aegisflow/gates ----> @aegisflow/core + pg
         |
         +------ @aegisflow/effects --> @aegisflow/core + pg + node:crypto
 ```
 
 `contracts` imports only relative modules. `core` imports only `contracts` plus
 relative modules. `persistence` imports only contracts, PostgreSQL, Node migration
-I/O, and relative modules. Queue and Effects may depend on contracts, core,
-persistence, and PostgreSQL; Effects additionally uses Node cryptography to digest
-canonical intent. Persistence does **not** depend back on queue or effects.
+I/O, and relative modules. Queue, Effects, and Gates may depend on contracts, core,
+persistence, and PostgreSQL; Effects additionally uses Node cryptography.
+Persistence does not depend back on those authority services.
 
 ## Architectural invariants
 
 ### PostgreSQL-first durability
 
-The target runtime requires transactional ownership, leases, durable Gates,
-Signals, Effects, and ordered evidence. PostgreSQL remains the only required durable
-coordination substrate in V1; PR5 does not introduce Redis, Kafka, RabbitMQ, NATS,
-or Kubernetes.
+PostgreSQL remains the only required durable coordination substrate in V1. PR6 does
+not introduce Redis, Kafka, RabbitMQ, NATS, or Kubernetes.
 
-### Pure domain transitions
+### Pure domain transitions remain authoritative
 
-PR2 remains authoritative for legal Effect transitions. PR5 calls
-`transitionEffect` for `PLANNED -> CLAIMED -> terminal` and never adds a hidden
-terminal-state escape hatch. PostgreSQL serializes authority and persistence; it
-does not replace the core state machine.
+PR2 defines legal Gate and StageExecution transitions. PR6 composes those functions
+with PostgreSQL transactions and constraints; it does not introduce a hidden Gate
+state machine or terminal-state escape hatch.
 
-### Worker authority remains separate from Effect authority
+### Authority layers are distinct
 
-PR4 answers **which worker may advance Stage work**. PR5 answers **whether a logical
-external side effect may be attempted or replayed**. A worker Claim is therefore
-not sufficient authority to repeat an Effect. Later connector execution must hold
-both the relevant Stage authority and Effect authority.
+- PR4 Worker Claim authority answers which worker may advance Stage work.
+- PR5 Effect authority answers whether one logical external side effect may be
+  attempted/replayed.
+- PR6 Gate authority answers whether protected Stage work is permitted to acquire
+  worker authority.
 
-### Stable Effect identity
+Approval therefore does not execute work and does not replace Effect authority.
 
-`effectKey` is unique within one Execution. Planning the same key and canonical
-intent concurrently converges on one durable Effect. Reusing a key for a different
-Stage or intent is rejected instead of silently aliasing two side effects.
+### Gate policy is pinned to the Flow version
 
-### Intent digest instead of raw connector payload
+Opening a Gate loads the Execution's immutable Flow definition and verifies the
+materialized Stage is type `gate`. Deadline configuration and protected direct
+dependents come from that pinned definition, not caller input.
 
-PR5 canonicalizes JSON intent and stores only its SHA-256 digest in the Effect
-ledger. This lets duplicate planning prove intent equality without making the
-ledger a second store of connector payloads or secrets.
+### Protected work is fail-closed
 
-### No generic exactly-once claim
+`gate_protections` may link several Gates to one StageExecution. PostgreSQL rejects
+an `ACTIVE` Claim whenever any protecting Gate is not `APPROVED`. This remains true
+even if a caller bypasses the Gate service and writes through the Claim surface
+directly.
 
-The ledger prevents runtime-level blind replay but cannot make an arbitrary remote
-system exactly-once. Future connectors should forward stable idempotency keys or use
-provider-native reconciliation where available.
+### Human resolution evidence is immutable
 
-### Ambiguity is quarantined
+Approval/rejection stores an opaque actor ID, bounded JSON evidence, and database
+time. Expiry stores system evidence. One trigger rejects UPDATE/DELETE of resolution
+rows. Authentication and authorization of those actor IDs are deliberately outside
+PR6.
 
-A connector outcome known to have succeeded becomes `SUCCEEDED`; known failure
-becomes `FAILED`; uncertainty becomes `RECONCILIATION_REQUIRED`. The ambiguous state
-cannot be claimed again. Reconciliation is written to a separate immutable table,
-so confirming what happened externally does not rewrite the original terminal
-Effect state.
+### Database clock decides Gate deadlines
 
-### Reconciliation does not silently authorize retries
+Gate deadlines use PostgreSQL `clock_timestamp()`. A decision arriving after the
+deadline cannot win merely because no expiry sweeper ran first: PR6 expires the
+locked Gate transactionally before returning a conflict to the late decision.
 
-Confirmed success suppresses future replay. Confirmed failure remains visible and
-blocked from automatic replay. A future connector/runtime retry policy must be
-explicitly designed; PR5 does not reinterpret a terminal failure as fresh authority.
+### Earlier durability invariants remain
 
-### Immutable Flow Versions and recovery history
-
-Earlier invariants remain: Flow Versions are append-only, Execution bootstrap is
-atomic, worker Claims retain historical generations, expired Attempts are timed
-out rather than overwritten, and stale workers are fenced.
+Flow Versions stay append-only; Execution bootstrap is atomic; worker Claims retain
+generation history and fence stale workers; Effect keys converge duplicates and
+quarantine ambiguous external outcomes.
 
 ## Package roadmap
 
@@ -107,48 +100,47 @@ out rather than overwritten, and stale workers are fenced.
 - `@aegisflow/persistence` — PostgreSQL migrations and reference repositories.
 - `@aegisflow/queue` — claims, leases, fencing, heartbeat, expiry, recovery.
 - `@aegisflow/effects` — durable Effect identity, idempotency, and reconciliation.
-- `@aegisflow/flows` — graph scheduling and version semantics.
-- `@aegisflow/policy` — deterministic allow/require-gate/deny decisions.
-- `@aegisflow/gates` — durable human approval lifecycle.
+- `@aegisflow/gates` — durable human Gate lifecycle and protected-work authority.
+- `@aegisflow/flows` — future graph scheduling and version semantics.
+- `@aegisflow/policy` — future deterministic allow/require-gate/deny decisions.
 - `@aegisflow/providers` — model provider adapters.
 - `@aegisflow/connectors` — typed external actions.
 - `@aegisflow/evidence` — higher-level ordered durable execution evidence.
 - `@aegisflow/sdk` — public client used by CLI and web.
 
-Applications later consume those packages: API, worker, CLI, then operator web.
-
 ## Trust boundaries
 
 1. User/API input -> contract validation.
 2. Runtime -> persistence transaction boundary.
-3. Worker -> Claim owner + lease + generation fencing authority.
-4. Model output -> schema validation + deterministic policy.
-5. Policy -> optional durable Gate.
-6. Approved Action -> Effect planning + Effect claim authority.
-7. Effect-authorized request -> connector/provider-native idempotency surface.
-8. External response -> classified success/failure/ambiguous result.
-9. Ambiguous response -> immutable reconciliation evidence before replay decisions.
+3. Human decision -> Gate row lock + immutable resolution evidence.
+4. Gate approval -> protected Stage becomes eligible for worker Claim authority.
+5. Worker -> Claim owner + lease + generation fencing authority.
+6. Model output -> future schema validation + deterministic policy.
+7. Side-effecting Stage -> Effect planning + Effect claim authority.
+8. Effect-authorized request -> future connector/provider-native idempotency surface.
+9. External response -> success/failure/ambiguity classification and reconciliation.
 10. Runtime events -> redacted structured Evidence.
 
-## Current PR5 guarantees
+## Current PR6 guarantees
 
 For the PostgreSQL 17 reference target, the executed integration suite demonstrates:
 
-- concurrent identical planning converges on one Effect row;
-- same `effectKey` with different canonical intent fails closed;
-- two concurrent claimers cannot both gain external-call authority;
-- successful Effects suppress accidental replay;
-- known failures remain terminal and visible;
-- ambiguous outcomes become `RECONCILIATION_REQUIRED` and block replay;
-- identical reconciliation is idempotent while conflicting reconciliation fails;
-- confirmed success suppresses replay without mutating the original terminal state;
-- confirmed failure remains blocked from automatic replay;
-- two completion writers cannot both resolve one claimed Effect;
-- Effect Execution/Stage ownership is enforced;
-- reconciliation rows are database-enforced immutable evidence;
-- migration `0003_effect_ledger` rolls back/reapplies while preserving PR3/PR4
+- Gate creation only on a Gate Stage and policy derivation from the pinned Flow;
+- direct dependents become protected durable StageExecutions;
+- approval/rejection/expiry remains monotonic and aligned with Gate Stage state;
+- matching duplicate approval is idempotent without overwriting evidence;
+- concurrent conflicting decisions produce one winner and one deterministic conflict;
+- a deadline that elapsed before a human decision becomes durable `EXPIRED` first;
+- Gate resolution evidence rejects database UPDATE/DELETE;
+- invalid actor/evidence fails before durable Gate mutation;
+- queue Claim authority is blocked until all protecting Gates are approved;
+- direct SQL Claim bypass is also rejected;
+- multiple Gates require unanimous approval;
+- replacement service instances reconstruct durable terminal decisions;
+- migration `0004_durable_gates` rolls back/reapplies while preserving PR3–PR5
   regression coverage.
 
-PR5 does **not** claim provider/connector exactly-once behavior, connector-specific
-retry policy, durable human Gates, PostgreSQL-major-version portability, HA/backup
+PR6 does not claim authenticated human identity, RBAC/policy correctness,
+notifications/UI, provider/connector correctness, general graph-scheduler behavior,
+continuous expiry-sweeper latency, PostgreSQL-major-version portability, HA/backup
 readiness, deployment readiness, or production/SOTA performance.

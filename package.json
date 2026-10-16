@@ -26,7 +26,8 @@
     "boundaries": "node scripts/check-boundaries.mjs",
     "secret:scan": "node scripts/check-secrets.mjs",
     "manifest:pr5": "node scripts/hash-pr5-artifacts.mjs",
-    "verify": "npm run lint && npm run typecheck && npm test && npm run boundaries && npm run secret:scan"
+    "manifest:pr6": "node scripts/hash-pr6-artifacts.mjs",
+    "verify": "npm run lint && npm run typecheck && npm test && npm run boundaries && npm run secret:scan && npm run manifest:pr6"
   },
   "devDependencies": {
     "@types/node": "22.20.5",

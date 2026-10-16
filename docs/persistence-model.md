@@ -2,126 +2,107 @@
 
 PostgreSQL is AegisFlow's reference durable storage and coordination substrate for
 V1. Persistence stores domain state; `@aegisflow/core` defines legal transitions;
-`@aegisflow/queue` composes those semantics with durable worker authority; and
-`@aegisflow/effects` composes them with durable external-side-effect authority.
+`@aegisflow/queue` adds worker authority; `@aegisflow/effects` external-side-effect
+authority; and `@aegisflow/gates` durable human approval authority.
 
 Reference CI target: PostgreSQL 17.
 
 ## Implemented entities
 
-### `flows`
+### `flows` / `flow_versions`
 
-Stable Flow identity plus mutable descriptive metadata.
+Flows have stable identity. Flow Versions are append-only immutable snapshots. A
+trigger rejects FlowVersion UPDATE/DELETE, and Executions pin one version.
 
-### `flow_versions`
+### `executions` / `stage_executions`
 
-Append-only immutable snapshots keyed by `(flow_id, version)` and unique
-Flow-Version ID. A trigger rejects `UPDATE` and `DELETE`; a composite foreign key
-ensures an Execution cannot pin another Flow's version.
+Executions store current lifecycle state and the pinned FlowVersion. One logical
+Stage instance exists per Execution. Composite `(id, execution_id)` uniqueness lets
+later authority records prove same-Execution ownership with foreign keys.
 
-### `executions`
+### `attempts` / `claims`
 
-Execution identity, pinned Flow/Flow-Version IDs, current state, and lifecycle
-timestamps.
-
-### `stage_executions`
-
-One logical Stage instance per Execution, enforced by
-`UNIQUE (execution_id, stage_id)`. Execution creation and initial Stage rows are
-atomic. PR5 also adds a redundant composite uniqueness constraint on
-`(id, execution_id)` so Effect rows can enforce Stage/Execution ownership with a
-composite foreign key.
-
-### `attempts`
-
-Append-only work-attempt history with unique `(stage_execution_id, sequence)`.
-Retries and worker recovery create a new sequence instead of reopening history.
+Attempts preserve work-attempt history. Claims store durable worker authority,
+leases, owner, and monotonic fencing generation. Only one Claim may be ACTIVE per
+StageExecution.
 
 ### `execution_events`
 
-Structured JSON-object evidence with a database-assigned identity `position`, giving
-concurrent inserts a total persisted order.
+Structured JSON-object evidence with a database-assigned total persisted order.
 
-### `claims`
+### `effects` / `effect_reconciliations`
 
-Durable worker authority. Each Claim is permanently tied to one Attempt and stores
-owner, positive monotonic generation, state, lease expiry, heartbeat, claim time,
-and optional finish time. One partial unique index permits at most one `ACTIVE`
-Claim per StageExecution.
+PR5 stores stable Effect identity, canonical-intent digest, terminal outcome
+classification, and optional immutable reconciliation evidence. Raw connector intent
+is not stored in the ledger.
 
-### `effects`
+### `gates`
 
-PR5 adds one row for one logical external side effect:
+PR6 stores one durable Gate per Gate StageExecution:
 
-- Effect ID;
-- owning Execution and StageExecution;
-- stable `effect_key`, unique within the Execution;
-- SHA-256 `intent_digest` of canonical JSON intent;
-- PR2 Effect state: `PLANNED`, `CLAIMED`, `SUCCEEDED`, `FAILED`, or
-  `RECONCILIATION_REQUIRED`;
-- claim/resolution timestamps;
-- bounded result classification code;
-- optional bounded external reference;
+- Gate ID, owning Execution and Gate StageExecution;
+- PR2 Gate state (`WAITING`, `APPROVED`, `REJECTED`, `EXPIRED`);
+- optional database-clock expiry deadline;
+- terminal resolution timestamp;
 - create/update timestamps.
 
-The ledger intentionally does not persist the raw connector intent payload. A
-composite foreign key ensures the StageExecution belongs to the stored Execution.
-State/timestamp consistency is enforced with a database check constraint.
+A composite foreign key proves the Gate StageExecution belongs to the same
+Execution. State/timestamp consistency is database-constrained.
 
-### `effect_reconciliations`
+### `gate_protections`
 
-One optional immutable reconciliation record per Effect whose original outcome was
-ambiguous. It stores `CONFIRMED_SUCCEEDED` or `CONFIRMED_FAILED`, the bounded actor
-identifier, an optional external reference, and reconciliation time. A trigger
-rejects `UPDATE` and `DELETE` so reconciliation evidence cannot be rewritten.
+Maps each Gate to the materialized direct dependent StageExecutions it protects.
+Both the Gate and protected Stage must belong to the same Execution. Several Gates
+may protect one Stage.
 
-## Transaction boundaries
+### `gate_resolutions`
 
-1. **Migrations:** each migration is applied transactionally while an advisory lock
-   serializes migrators.
-2. **Execution bootstrap:** Execution plus initial StageExecution rows commit or
-   roll back together.
-3. **Compare-and-set:** concurrent expected-state writers cannot both win one state
-   predicate.
-4. **Worker claim acquisition/recovery/completion:** PR4 serializes authority with
-   row locks, conditional writes, generations, and leases.
-5. **Effect planning:** Stage ownership validation and insert-or-converge behavior
-   occur in one transaction. Concurrent same-key planners converge on the row that
-   wins the unique `(execution_id, effect_key)` constraint.
-6. **Effect claim:** the Effect row is locked before the PR2 `PLANNED -> CLAIMED`
-   transition is persisted, preventing two connector callers from both gaining
-   authority.
-7. **Effect completion:** one locked `CLAIMED` row moves to exactly one terminal
-   result with its result classification metadata.
-8. **Effect reconciliation:** the terminal ambiguous Effect is locked and a single
-   immutable reconciliation row is inserted; duplicate identical reconciliation is
-   idempotent, conflicting reconciliation is rejected.
-9. **Evidence append:** one insert allocates the persisted event order position and
-   stores the event payload.
+One immutable terminal evidence row per Gate. Approval/rejection requires a bounded
+opaque actor identifier; expiry has no human actor. Bounded JSON object evidence and
+a PostgreSQL timestamp are persisted. A trigger rejects UPDATE or DELETE.
+
+## Transaction and authority boundaries
+
+1. **Migrations:** transactional under an advisory migration lock.
+2. **Execution bootstrap:** Execution plus initial StageExecutions are atomic.
+3. **Worker claims:** row locks, generations, leases, and conditional writes fence
+   duplicate/stale worker authority.
+4. **Effects:** planning, claim, completion, and reconciliation serialize through
+   locked Effect rows and uniqueness constraints.
+5. **Gate creation:** materialized Stage rows are locked; the pinned Flow definition
+   is validated; Gate expiry and direct protection edges are derived; the Gate Stage
+   enters WAITING; Gate/protection rows commit together.
+6. **Gate decision:** the Gate row and Gate Stage are locked; deadline is checked
+   using the database clock; Gate state, Stage state, and immutable resolution
+   evidence commit atomically.
+7. **Protected Claim enforcement:** PostgreSQL rejects an ACTIVE Claim when any Gate
+   protecting that Stage is not APPROVED. Failed queue attempts roll back their
+   Attempt/Stage changes with the transaction.
+8. **Evidence append:** database identity provides total persisted event order.
 
 PostgreSQL `READ COMMITTED` is the current reference isolation level. Authority
-paths rely on row locks, conditional writes, uniqueness constraints, and foreign
-keys rather than application read-then-write races.
+paths rely on row locks, constraints, and conditional writes rather than unguarded
+application read-then-write sequences.
 
 ## Migration lifecycle
-
-Migrations live in `packages/persistence/migrations` as paired `*.up.sql` /
-`*.down.sql` files and are tracked in `aegisflow_schema_migrations`.
 
 Current chain:
 
 1. `0001_initial` — Flow/runtime persistence and ordered evidence.
-2. `0002_worker_claims` — durable worker Claims, generations, and lease indexes.
-3. `0003_effect_ledger` — durable Effects, stable keys, intent digests, and immutable
+2. `0002_worker_claims` — worker Claims, fencing generations, lease indexes.
+3. `0003_effect_ledger` — Effects, stable keys, intent digests, immutable
    reconciliation evidence.
+4. `0004_durable_gates` — Gates, protection edges, immutable resolution evidence,
+   and database Claim protection.
 
-The integration suite verifies clean apply, rollback of `0003` while retaining the
-PR4 schema, rollback of `0002` while retaining the PR3 schema, rollback of `0001`,
-and reapplication of the full chain.
+The integration suite verifies clean apply, rollback of `0004` while retaining the
+PR5 schema, then rollback of `0003`, `0002`, and `0001`, followed by full-chain
+reapplication.
 
-## Still outside this slice
+## Still outside PR6
 
-- connector/provider-specific idempotency-key forwarding and retry policy;
-- durable Gates and approval evidence — PR6;
-- Signals, providers, connectors, API/SDK/CLI, background recovery service, and
-  operator UI.
+- authenticated/authorized human identity and policy/RBAC;
+- notification delivery and approval UI;
+- connector/provider-specific execution and idempotency forwarding;
+- general graph scheduling/unblocking behavior;
+- Signals, API/SDK/CLI, background worker/sweeper services, and operator UI.
