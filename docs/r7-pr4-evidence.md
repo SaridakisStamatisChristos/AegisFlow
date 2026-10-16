@@ -80,8 +80,10 @@ Run `38970767191` on head `fb8949ad3af95e451468c3ccd33204db91ee732a`:
 - repeated recovery/history preservation: PASS;
 - runtime dependency audit: PASS, 0 vulnerabilities.
 
-## Current evidence state
+## Evidence closure rule
 
-**VERIFIED for the declared PR4 semantics on PostgreSQL 17 at the repaired code
-head. Final documentation/manifest head still requires one exact-head hosted rerun
-before the PR is marked merge-ready.**
+The semantic code head is VERIFIED for the declared PR4 behavior on PostgreSQL 17.
+The merge-ready gate additionally requires hosted CI success on the exact final
+artifact head containing documentation and `docs/r7-pr4-manifest.sha256`. That
+exact final run is recorded in PR metadata after completion; this ledger does not
+promote an unexecuted artifact head by assertion.
