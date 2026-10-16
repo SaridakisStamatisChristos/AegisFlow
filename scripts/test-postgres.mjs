@@ -7,12 +7,7 @@ if (databaseUrl === undefined || databaseUrl.length === 0) {
 }
 
 const suites = [
-  {
-    path: "packages/persistence/test/persistence.integration.test.mjs",
-    args: [
-      "--test-name-pattern=^(?!clean migration chain applies, rolls back, and reapplies$).*",
-    ],
-  },
+  { path: "packages/persistence/test/persistence.integration.test.mjs", args: [] },
   { path: "packages/queue/test/queue.integration.test.mjs", args: [] },
   { path: "packages/effects/test/effects.integration.test.mjs", args: [] },
   { path: "packages/gates/test/gates.integration.test.mjs", args: [] },
