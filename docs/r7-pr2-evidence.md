@@ -12,9 +12,20 @@ Observed before repository push:
 - attempt sequence malformed/non-finite/overflow inputs are rejected;
 - invalid runtime state/event strings fail closed with `InvalidStateTransitionError`.
 
-This is evidence for the PR2 core package only. PR1 regression coverage and the
-repository-wide CI gate remain unverified until the branch is pushed and hosted CI
-executes the current head.
+## Hosted verification
+
+Code-bearing head `c9c61defbac2ee8f3a42d327be9913f60d59b93e` was exercised by
+GitHub Actions run `38966542260`:
+
+- checkout/setup: PASS;
+- fresh toolchain install: PASS;
+- repository-wide `npm run verify`: PASS;
+- runtime dependency audit: PASS;
+- job conclusion: SUCCESS.
+
+This run covers PR1 regression tests plus PR2 core tests and the expanded architecture
+boundary checks. The final R7 closure commit changes only evidence/manifest metadata;
+PR readiness still requires CI to remain green on that final head.
 
 ## Failure / repair ledger
 
@@ -37,10 +48,15 @@ executes the current head.
   the declared state/event contracts.
 - VERIFIED locally: terminal-state and no-blind-replay invariants are enforced by
   executable tests.
-- UNVERIFIED: repository-wide regression status on the PR head until hosted CI.
+- VERIFIED: repository-wide regression status on the code-bearing PR2 revision by
+  hosted run `38966542260`.
 - NOT CLAIMED: durable recovery, database correctness, concurrency safety,
   exactly-once effects, production readiness, or SOTA status.
 
 ## Completion state
 
-`CONDITIONAL — hosted repository verification and final manifest pending.`
+`VERIFIED FOR DECLARED PR2 TARGET`
+
+This verdict is limited to the pure deterministic state-machine slice. It does not
+extend to PR3+ persistence, concurrency, Effects/Gates durability, providers,
+connectors, APIs, deployment, or production readiness.

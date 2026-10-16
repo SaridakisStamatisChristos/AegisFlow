@@ -14,9 +14,9 @@ connectors, and network APIs are explicitly out of scope.
 | R2-06 | Ambiguous Effect outcomes enter reconciliation and cannot blind-replay. | HANDOFF | HARD | reconciliation terminal tests | Effect machine | VERIFIED locally |
 | R2-07 | Decision branch selection is deterministic without adding an expression language or mutating the Flow graph. | PR1 architecture | HARD | choice validation/order/immutability tests | branch resolver | VERIFIED locally |
 | R2-08 | Malformed runtime state/event input fails closed with domain errors rather than incidental `TypeError`/undefined state. | R7 | HARD | adversarial JavaScript-call tests | transition engine | VERIFIED locally |
-| R2-09 | Repository verification includes both PR1 contracts and PR2 core. | R7 | HARD | hosted `npm run verify` on PR head | root scripts + CI | UNVERIFIED until hosted CI |
+| R2-09 | Repository verification includes both PR1 contracts and PR2 core. | R7 | HARD | hosted `npm run verify` on code-bearing PR head | root scripts + CI | VERIFIED — run `38966542260` on `c9c61def...` |
 | R2-10 | Public documentation matches implemented transition semantics and states later-slice boundaries. | R7 | SHOULD | doc/source comparison | README + architecture + state docs | VERIFIED locally |
-| R2-11 | PR2 generated/modified artifacts have real SHA-256 evidence. | R7 | HARD | checksum manifest | PR2 manifest | OPEN until final revision |
+| R2-11 | PR2 generated/modified artifacts have real SHA-256 evidence. | R7 | HARD | checksum manifest | PR2 manifest | VERIFIED — `docs/r7-pr2-manifest.sha256` |
 
 ## Hard invariants
 
