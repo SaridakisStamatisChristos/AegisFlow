@@ -2,80 +2,91 @@
 
 ## Decision summary
 
-AegisFlow uses a TypeScript/Node monorepo with PostgreSQL planned as the single
-reference durability substrate for V1. Domain contracts and pure state machines
-remain independent of PostgreSQL, HTTP frameworks, model SDKs, connector SDKs,
-wall-clock time, and randomness.
+AegisFlow uses a TypeScript/Node monorepo with PostgreSQL as the single reference
+durability substrate for V1. Domain contracts and pure state machines remain
+independent of PostgreSQL, HTTP frameworks, model SDKs, connector SDKs, wall-clock
+time, and randomness.
 
-PR1 introduced `@aegisflow/contracts`. PR2 introduces `@aegisflow/core` for pure,
-deterministic state-transition semantics only. Later packages appear when their
-runtime responsibility exists rather than as empty shells.
+PR1 introduced `@aegisflow/contracts`. PR2 introduced `@aegisflow/core`. PR3 adds
+`@aegisflow/persistence`, a PostgreSQL adapter that stores those contracts without
+redefining their transition semantics.
 
 ## Dependency rule
 
-The intended dependency direction is:
+The current enforced package edges are:
 
 ```text
-contracts
-   ↓
-core
-   ↓
-flows
-   ↓
-runtime
+@aegisflow/contracts
+        ^
+        |
+@aegisflow/core
+
+@aegisflow/contracts
+        ^
+        |
+@aegisflow/persistence ---> pg / Node filesystem only
 ```
 
-Adapters point inward through contracts/interfaces. `contracts` may import only
-relative modules from itself. `core` may import only `@aegisflow/contracts` plus
-relative modules from itself. CI enforces those boundaries.
+`contracts` imports only relative modules. `core` imports only `contracts` plus
+relative modules. `persistence` imports only `contracts`, the PostgreSQL driver,
+Node migration I/O, and relative modules. In particular, persistence does **not**
+import `core`; a database repository must never become the authority for whether a
+domain transition is legal.
+
+Later scheduling/runtime packages may depend on both core and persistence through
+explicit interfaces.
 
 ## Why the hand-off architecture survives review
 
-### Keep PostgreSQL-first durability
+### PostgreSQL-first durability
 
 The target runtime requires transactional ownership, leases, durable Gates,
-Signals, Effects, and ordered evidence. A relational database can express these
-without introducing another distributed subsystem in V1. Persistence begins in
-PR3; PR2 deliberately does not simulate durability in memory.
+Signals, Effects, and ordered evidence. PR3 now supplies the reference relational
+substrate without adding Redis, Kafka, Kubernetes, or another distributed state
+system.
 
 ### Keep state transitions pure
 
-PR2 state machines consume only current state plus an explicit event and return a
-frozen transition result. They perform no I/O, read no clock, and draw no
-randomness. This keeps retry, cancellation, Gate, and Effect semantics testable
-without conflating them with storage or worker ownership.
+PR2 decides whether a transition is legal. PR3 provides storage primitives such as
+compare-and-set. This separation means a storage race can be prevented without
+copying transition policy into SQL/repositories.
 
-### Reject a general expression language
+### Immutable Flow Versions
 
-The conceptual hand-off example used conditional notation. A general expression
-language would silently create a parser/evaluator, security model, and compatibility
-contract. PR2 therefore resolves only an already-selected declared Decision choice;
-it does not evaluate arbitrary expressions.
+Flow Version snapshots are append-only in the contract and now independently
+protected in PostgreSQL by uniqueness constraints plus a trigger rejecting update
+or delete. Executions use a composite foreign key so the stored Flow ID must match
+the Flow Version's owner.
 
-### Reject arbitrary transform scripting
+### Atomic execution materialization
 
-`transform` remains declarative mapping only. Arbitrary JavaScript would violate
-the V1 non-goal of arbitrary code execution and blur the authority boundary.
+Creating an Execution and its initial StageExecution rows is one transaction.
+A partially materialized workflow is therefore not a valid persisted state.
 
-### Keep Agent Stages bounded
+### Evidence ordering
 
-The contract exposes provider, instruction, allowed-tool declarations, output
-schema, and `maxSteps`. Tool declarations are not execution authority. Runtime
-policy, Gates, and Effects remain mandatory later boundaries.
+Concurrent execution-event inserts receive a database identity position. This
+provides an unambiguous persisted order without requiring an in-memory sequencer.
 
-## Planned packages
+### Reject premature queue semantics
+
+PR3 does not add worker claims, leases, fencing generations, heartbeats, or recovery.
+Those are PR4 because they require their own concurrency contract and adversarial
+failure tests.
+
+## Package roadmap
 
 - `@aegisflow/contracts` — IDs, public domain types, schemas, error taxonomy.
 - `@aegisflow/core` — pure state machines and retry/cancellation semantics.
+- `@aegisflow/persistence` — PostgreSQL migrations and reference repositories.
 - `@aegisflow/flows` — graph scheduling and version semantics.
-- `@aegisflow/persistence` — PostgreSQL repositories and migrations.
 - `@aegisflow/queue` — claims, leases, fencing, expiry, recovery.
 - `@aegisflow/policy` — deterministic allow/require-gate/deny decisions.
 - `@aegisflow/effects` — idempotency and reconciliation ledger.
 - `@aegisflow/gates` — durable human approval lifecycle.
 - `@aegisflow/providers` — model provider adapters.
 - `@aegisflow/connectors` — typed external actions.
-- `@aegisflow/evidence` — ordered durable execution evidence.
+- `@aegisflow/evidence` — higher-level ordered durable execution evidence.
 - `@aegisflow/sdk` — public client used by CLI and web.
 
 Applications later consume those packages: API, worker, CLI, then operator web.
@@ -84,21 +95,26 @@ Applications later consume those packages: API, worker, CLI, then operator web.
 
 1. User/API input -> contract validation.
 2. Runtime -> persistence transaction boundary.
-3. Worker -> lease/fencing authority boundary.
+3. Worker -> lease/fencing authority boundary (PR4).
 4. Model output -> schema validation + deterministic policy.
 5. Policy -> optional durable Gate.
 6. Approved Action -> Effect ledger -> connector.
 7. External response -> classified success/failure/ambiguous result.
 8. Runtime events -> redacted structured Evidence.
 
-## Current PR2 guarantees
+## Current PR3 guarantees
 
-PR2 can claim deterministic in-memory transition semantics for Execution,
-StageExecution, Attempt, Gate, Effect, and declared Decision branch selection.
-Terminal states do not revive; cancellation is monotonic; retries allocate a new
-Attempt sequence; conflicting Gate decisions fail; ambiguous Effects cannot blind
-replay.
+PR3 can claim, when the PostgreSQL integration suite is green on the exact revision:
 
-PR2 does **not** claim durable recovery, database correctness, dependency scheduling,
-lease fencing, external-effect idempotency, durable Gate persistence, connector or
-provider correctness, or production readiness.
+- clean migration and single-step rollback/reapply;
+- durable round-trip of Flow, FlowVersion, Execution, StageExecution, Attempt, and
+  execution-event records;
+- database-enforced FlowVersion immutability;
+- atomic Execution + initial Stage materialization;
+- retry sequence uniqueness;
+- compare-and-set conflict arbitration under concurrent writers;
+- lossless concurrent event append with total database ordering.
+
+PR3 does **not** claim worker recovery, lease fencing, external-effect idempotency,
+durable Gate semantics, provider/connector correctness, deployment readiness, or
+production readiness.
