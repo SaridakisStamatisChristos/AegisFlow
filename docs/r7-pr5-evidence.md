@@ -71,9 +71,23 @@ Observed results:
 - runtime dependency audit: PASS, zero vulnerabilities reported;
 - overall job conclusion: SUCCESS.
 
+## Manifest closure
+
+The repository verifier `scripts/hash-pr5-artifacts.mjs` hashes 14 executable/configuration/test artifacts with SHA-256.
+
+Run `38974899162`, job `117221860255`, generated the exact hashes while `docs/r7-pr5-manifest.sha256` was intentionally absent. The same run passed source verification, **30/30** contract/core tests, **29/29** PostgreSQL tests, and the runtime dependency audit.
+
+Those generated values were committed verbatim as `docs/r7-pr5-manifest.sha256`.
+
+Run `38975007765`, job `117222217416`, head:
+
+`c36af015608200f7a55c183abdffef548489ad35`
+
+then executed the manifest as an enforcement gate. `npm run verify` compared the current artifacts against the committed manifest and passed, followed by the complete PostgreSQL migration/persistence/queue/effects suite and runtime dependency audit. Overall conclusion: SUCCESS.
+
 ## Failure / repair ledger
 
-No PR5 implementation defect was exposed by the first complete hosted verification run. Therefore there is no F5 repair entry to record. This is not evidence that all possible Effect failures have been exhausted; it means the declared falsification set executed without producing a failing counterexample.
+No PR5 implementation defect was exposed by the complete hosted verification runs. Therefore there is no F5 repair entry to record. This is not evidence that all possible Effect failures have been exhausted; it means the declared falsification set executed without producing a failing counterexample.
 
 R7 requires discovered failures to be preserved, but it also forbids inventing failures merely to populate a repair narrative.
 
@@ -92,10 +106,6 @@ PR5 intentionally blocks automatic replay of `FAILED` and reconciliation-confirm
 
 ## R7 closure state
 
-The code-bearing PR5 semantics are **VERIFIED** by run `38974419026`.
+All declared PR5 semantic, migration, regression, dependency, and executable-manifest requirements are **VERIFIED**.
 
-The PR remains **PARTIAL / draft** until:
-
-1. `docs/r7-pr5-manifest.sha256` is generated from the repository's deterministic artifact verifier;
-2. the manifest is checked by `npm run verify`;
-3. the exact final PR head passes the complete hosted source, PostgreSQL, and dependency-audit chain.
+A documentation-only closure commit changes the branch SHA but not any manifest-covered executable artifact. Before PR5 is promoted to **MERGE-READY**, the current pull-request head must still pass the same complete hosted workflow. That current-head result is recorded in the pull-request body after observation, avoiding a self-referential cycle where editing this evidence document to mention the latest successful run creates yet another unverified head.
