@@ -193,7 +193,12 @@ export function createOperatorConsoleServer(options: OperatorConsoleOptions): Se
         sendHtml(response, 200, layout("Effects & reconciliation", `${data.truncated ? '<p class="warning">Showing first 200 Effects.</p>' : ""}${cards}`)); return;
       }
       if (method === "POST" && path.length === 3 && path[0] === "effects" && path[2] === "reconcile") {
-        const form = await readForm(request); requireCsrf(form, token); const effectId = parseEffectId(path[1]); const decision = requireField(form, "decision"); if (decision !== "CONFIRMED_SUCCEEDED" && decision !== "CONFIRMED_FAILED") throw new ConsoleInputError("Unknown reconciliation decision."); const reconciledBy = requireField(form, "reconciledBy"); const externalReference = form.get("externalReference")?.trim(); const input = externalReference ? { effectId, decision, reconciledBy, externalReference } : { effectId, decision, reconciledBy }; await client.reconcileEffect(input); redirect(response, safeReturnTo(form, "/effects")); return;
+        const form = await readForm(request); requireCsrf(form, token); const effectId = parseEffectId(path[1]); const decisionText = requireField(form, "decision");
+        if (decisionText !== "CONFIRMED_SUCCEEDED" && decisionText !== "CONFIRMED_FAILED") throw new ConsoleInputError("Unknown reconciliation decision.");
+        const decision: "CONFIRMED_SUCCEEDED" | "CONFIRMED_FAILED" = decisionText;
+        const reconciledBy = requireField(form, "reconciledBy"); const externalReference = form.get("externalReference")?.trim();
+        const input = externalReference ? { effectId, decision, reconciledBy, externalReference } : { effectId, decision, reconciledBy };
+        await client.reconcileEffect(input); redirect(response, safeReturnTo(form, "/effects")); return;
       }
       sendHtml(response, 404, layout("Not found", '<p class="error">Route not found.</p>'));
     } catch (error) {
