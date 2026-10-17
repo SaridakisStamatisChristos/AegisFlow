@@ -10,10 +10,11 @@ const rules = [
   ["queue", ["@aegisflow/contracts", "@aegisflow/core", "@aegisflow/persistence", "pg"]],
   ["effects", ["@aegisflow/contracts", "@aegisflow/core", "@aegisflow/persistence", "pg"]],
   ["gates", ["@aegisflow/contracts", "@aegisflow/core", "@aegisflow/persistence", "pg"]],
+  ["flows", ["@aegisflow/contracts", "@aegisflow/core", "@aegisflow/gates", "pg"]],
   ["connectors", ["@aegisflow/contracts", "@aegisflow/effects", "pg"]],
   ["providers", ["@aegisflow/connectors", "@aegisflow/contracts", "@aegisflow/effects", "@aegisflow/queue", "pg"]],
   ["sdk", ["@aegisflow/contracts"]],
-  ["api", ["@aegisflow/contracts", "@aegisflow/core", "@aegisflow/effects", "@aegisflow/gates", "pg"]],
+  ["api", ["@aegisflow/contracts", "@aegisflow/core", "@aegisflow/effects", "@aegisflow/flows", "@aegisflow/gates", "pg"]],
   ["cli", ["@aegisflow/contracts", "@aegisflow/sdk"]],
   ["console", ["@aegisflow/contracts", "@aegisflow/sdk"]],
 ];
@@ -34,4 +35,4 @@ async function walk(packageName, allowed, directory) {
 }
 for (const [packageName, allowed] of rules) await walk(packageName, allowed, join(root, "packages", packageName, "src"));
 if (failures.length > 0) { console.error("architecture boundary violation:\n" + failures.join("\n")); process.exit(1); }
-console.log("boundaries: domain layers remain inward-facing; SDK -> contracts; CLI/console -> SDK/contracts; API -> contracts/core/effects/gates/PostgreSQL");
+console.log("boundaries: contracts/core/persistence remain inward-facing; flows orchestrates core+gates; API composes flows without bypassing worker/effect authority");
