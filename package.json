@@ -26,7 +26,8 @@
     "manifest:pr5": "node scripts/hash-pr5-artifacts.mjs",
     "manifest:pr6": "node scripts/hash-pr6-artifacts.mjs",
     "manifest:pr7": "node scripts/hash-pr7-artifacts.mjs",
-    "verify": "npm run lint && npm run typecheck && npm test && npm run boundaries && npm run secret:scan"
+    "manifest:pr8": "node scripts/hash-pr8-artifacts.mjs",
+    "verify": "npm run lint && npm run typecheck && npm test && npm run boundaries && npm run secret:scan && npm run manifest:pr8"
   },
   "devDependencies": {
     "@types/node": "22.20.5",
