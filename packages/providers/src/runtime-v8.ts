@@ -1,10 +1,11 @@
 import {
   parseAttemptId,
+  parseEffectId,
   parseExecutionId,
   parseStageExecutionId,
   validateFlowDefinition,
   type AgentStage,
-  type AttemptId,
+  type EffectId,
   type ExecutionId,
   type JsonObject,
   type StageExecutionId,
@@ -131,24 +132,27 @@ function providerRequest(
     allowedTools: Object.freeze([...stage.allowedTools]),
     maxSteps: stage.maxSteps,
     step,
-    ...(toolResults.length === 0 ? {} : { toolResults: Object.freeze(toolResults.map((item) => Object.freeze({ ...item }))) }),
+    ...(toolResults.length === 0
+      ? {}
+      : { toolResults: Object.freeze(toolResults.map((item) => Object.freeze({ ...item }))) }),
     ...(stage.outputSchema === undefined ? {} : { outputSchema: stage.outputSchema }),
   });
 }
 
-function safeResolutionCode(error: unknown): { readonly known: boolean; readonly code: string } {
-  const protocolFailure = error instanceof AgentRuntimeError && error.code === "MALFORMED_PROVIDER_RESPONSE";
-  const known = protocolFailure || (error instanceof ProviderInvocationError && error.classification === "KNOWN_FAILURE");
+function providerFailure(error: unknown): { readonly known: boolean; readonly code: string } {
+  const malformed = error instanceof AgentRuntimeError && error.code === "MALFORMED_PROVIDER_RESPONSE";
+  const known = malformed || (error instanceof ProviderInvocationError && error.classification === "KNOWN_FAILURE");
   const raw = error instanceof ProviderInvocationError ? error.providerCode : undefined;
   return {
     known,
-    code: typeof raw === "string" && /^[A-Za-z0-9._:-]{1,128}$/u.test(raw)
-      ? raw
-      : protocolFailure
-        ? "malformed_provider_response"
-        : known
-          ? "provider_known_failure"
-          : "provider_exception_unknown",
+    code:
+      typeof raw === "string" && /^[A-Za-z0-9._:-]{1,128}$/u.test(raw)
+        ? raw
+        : malformed
+          ? "malformed_provider_response"
+          : known
+            ? "provider_known_failure"
+            : "provider_exception_unknown",
   };
 }
 
@@ -157,6 +161,7 @@ export class PostgresAgentRuntime {
   private readonly queue: PostgresWorkerQueue;
   private readonly effects: PostgresEffectLedger;
   private readonly tools: PostgresToolRuntime | null;
+  private readonly connectors: ConnectorRegistry | null;
 
   constructor(
     private readonly pool: Pool,
@@ -166,10 +171,13 @@ export class PostgresAgentRuntime {
     this.legacy = new LegacyAgentRuntime(pool, providers);
     this.queue = new PostgresWorkerQueue(pool);
     this.effects = new PostgresEffectLedger(pool);
+    this.connectors = connectors ?? null;
     this.tools = connectors === undefined ? null : new PostgresToolRuntime(pool, connectors);
   }
 
-  getProviderResult = this.legacy.getProviderResult.bind(this.legacy);
+  async getProviderResult(effectId: EffectId): Promise<DurableProviderResult | null> {
+    return this.legacy.getProviderResult(parseEffectId(effectId));
+  }
 
   private async loadAgentContext(stageExecutionId: StageExecutionId): Promise<{
     readonly executionId: ExecutionId;
@@ -208,14 +216,13 @@ export class PostgresAgentRuntime {
   }): Promise<DurableProviderResult> {
     const identity = agentProviderEffectIdentity(input.stageExecutionId, input.step);
     const json = responseJson(input.response);
-    const reference = input.response.providerReference ?? null;
     try {
       const inserted = await this.pool.query<ProviderResultRow>(
         `INSERT INTO agent_provider_results (effect_id, stage_execution_id, step, provider, response, provider_reference)
          VALUES ($1, $2, $3, $4, $5::jsonb, $6)
          ON CONFLICT (effect_id) DO NOTHING
          RETURNING effect_id, stage_execution_id, step, provider, response, provider_reference, created_at`,
-        [identity.effectId, input.stageExecutionId, input.step, input.provider, JSON.stringify(json), reference],
+        [identity.effectId, input.stageExecutionId, input.step, input.provider, JSON.stringify(json), input.response.providerReference ?? null],
       );
       if (inserted.rows[0] !== undefined) {
         const durable = await this.legacy.getProviderResult(identity.effectId);
@@ -249,7 +256,7 @@ export class PostgresAgentRuntime {
         event: "FAIL",
       });
     } catch {
-      // Claim fencing already prevents stale authority from becoming authoritative.
+      // PR4 fencing makes the lost claim non-authoritative.
     }
   }
 
@@ -303,7 +310,10 @@ export class PostgresAgentRuntime {
 
     if (effect.state === "CLAIMED") {
       if (input.acquisition.recovered) {
-        effect = (await this.effects.completeEffect(identity.effectId, { outcome: "AMBIGUOUS", resolutionCode: "orphaned_provider_call" })).effect;
+        effect = (await this.effects.completeEffect(identity.effectId, {
+          outcome: "AMBIGUOUS",
+          resolutionCode: "orphaned_provider_call",
+        })).effect;
         throw new AgentRuntimeError("PROVIDER_RECONCILIATION_REQUIRED", `Recovered provider call ${effect.id} requires reconciliation.`);
       }
       throw new AgentRuntimeError("INTEGRITY", "Provider Effect is in flight without worker recovery.");
@@ -324,19 +334,21 @@ export class PostgresAgentRuntime {
 
     let normalized: ProviderResponse;
     try {
-      normalized = normalizeProviderResponse(await this.providers.require(input.context.stage.provider).generate(
-        providerRequest(input.context.stage, input.step, input.toolResults),
-        {},
-      ));
+      normalized = normalizeProviderResponse(
+        await this.providers.require(input.context.stage.provider).generate(
+          providerRequest(input.context.stage, input.step, input.toolResults),
+          {},
+        ),
+      );
     } catch (error) {
-      const failure = safeResolutionCode(error);
+      const failure = providerFailure(error);
       try {
         await this.effects.completeEffect(identity.effectId, {
           outcome: failure.known ? "FAILED" : "AMBIGUOUS",
           resolutionCode: failure.code,
         });
       } catch {
-        // The primary provider error remains authoritative.
+        // The provider failure remains primary.
       }
       if (error instanceof AgentRuntimeError && error.code === "MALFORMED_PROVIDER_RESPONSE") throw error;
       if (failure.known) throw new AgentRuntimeError("PROVIDER_FAILED", "Provider reported a known failure.", { cause: error });
@@ -364,12 +376,11 @@ export class PostgresAgentRuntime {
   }
 
   async runAgentStage(input: RunAgentStageInput): Promise<AgentStageRunResult> {
-    if (this.tools === null) return this.legacy.runAgentStage(input);
+    if (this.tools === null || this.connectors === null) return this.legacy.runAgentStage(input);
 
     const stageExecutionId = parseStageExecutionId(input.stageExecutionId);
     const attemptId = parseAttemptId(input.attemptId);
     const context = await this.loadAgentContext(stageExecutionId);
-
     let acquisition: ClaimAcquisition | null;
     try {
       acquisition = await this.queue.claimStage({
@@ -386,11 +397,10 @@ export class PostgresAgentRuntime {
     const allowed = new Set(context.stage.allowedTools);
     const providerToolResults: ProviderToolResult[] = [];
     const durableTools: DurableToolResult[] = [];
-    let last: { readonly effect: DurableEffectRecord; readonly providerResult: DurableProviderResult } | null = null;
 
     try {
       for (let step = 1; step <= context.stage.maxSteps; step += 1) {
-        last = await this.runProviderStep({
+        const current = await this.runProviderStep({
           context,
           stageExecutionId,
           acquisition,
@@ -399,9 +409,9 @@ export class PostgresAgentRuntime {
           toolResults: providerToolResults,
         });
 
-        if (last.providerResult.response.kind === "final") {
+        if (current.providerResult.response.kind === "final") {
           if (context.stage.outputSchema !== undefined) {
-            assertAgentOutputMatchesSchema(last.providerResult.response.output, context.stage.outputSchema);
+            assertAgentOutputMatchesSchema(current.providerResult.response.output, context.stage.outputSchema);
           }
           await this.queue.completeClaim({
             stageExecutionId,
@@ -412,25 +422,27 @@ export class PostgresAgentRuntime {
           });
           return Object.freeze({
             acquisition,
-            effect: last.effect,
-            providerResult: last.providerResult,
+            effect: current.effect,
+            providerResult: current.providerResult,
             toolResults: Object.freeze([...durableTools]),
           });
         }
 
-        for (const call of last.providerResult.response.toolCalls) {
-          if (!allowed.has(call.name)) throw new AgentRuntimeError("TOOL_NOT_ALLOWED", `Provider requested tool '${call.name}' outside the immutable allow-list.`);
+        for (const call of current.providerResult.response.toolCalls) {
+          if (!allowed.has(call.name)) {
+            throw new AgentRuntimeError("TOOL_NOT_ALLOWED", `Provider requested tool '${call.name}' outside the immutable allow-list.`);
+          }
           try {
-            this.tools.connectors?.require?.(call.name);
-          } catch {
-            // Connector existence is checked by executeToolCall below; this compatibility branch is intentionally inert.
+            this.connectors.require(call.name);
+          } catch (error) {
+            throw new AgentRuntimeError("TOOL_EXECUTION_UNAVAILABLE", `Tool '${call.name}' has no registered connector.`, { cause: error });
           }
         }
         if (step >= context.stage.maxSteps) {
           throw new AgentRuntimeError("TOOL_EXECUTION_UNAVAILABLE", "Provider requested another tool after the Agent Stage exhausted maxSteps.");
         }
 
-        for (const call of last.providerResult.response.toolCalls) {
+        for (const call of current.providerResult.response.toolCalls) {
           await this.heartbeat(acquisition, input);
           let tool;
           try {
@@ -443,7 +455,9 @@ export class PostgresAgentRuntime {
             });
           } catch (error) {
             if (error instanceof ToolRuntimeError) {
-              if (error.code === "CONNECTOR_NOT_FOUND") throw new AgentRuntimeError("TOOL_EXECUTION_UNAVAILABLE", `Tool '${call.name}' has no registered connector.`, { cause: error });
+              if (error.code === "CONNECTOR_NOT_FOUND") {
+                throw new AgentRuntimeError("TOOL_EXECUTION_UNAVAILABLE", `Tool '${call.name}' has no registered connector.`, { cause: error });
+              }
               if (error.code === "RECONCILIATION_REQUIRED" || error.code === "AMBIGUOUS") {
                 throw new AgentRuntimeError("PROVIDER_RECONCILIATION_REQUIRED", `Tool '${call.name}' requires reconciliation.`, { cause: error });
               }
