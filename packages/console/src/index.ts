@@ -92,7 +92,11 @@ function redirect(response: ServerResponse, location: string): void {
 
 function parts(request: IncomingMessage): string[] {
   const url = new URL(request.url ?? "/", "http://aegisflow.console");
-  return url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
+  try {
+    return url.pathname.split("/").filter(Boolean).map((part) => decodeURIComponent(part));
+  } catch {
+    throw new ConsoleInputError("Request path contains malformed percent-encoding.");
+  }
 }
 
 async function readForm(request: IncomingMessage): Promise<URLSearchParams> {
