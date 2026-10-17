@@ -21,7 +21,7 @@ Scope: roadmap PR8 only — governed HTTP/GitHub/Slack connectors and durable Ag
 | R8-15 | Two-argument Agent runtime construction preserves PR7 fail-closed tool behavior. | selected PR7 runtime regression lane | VERIFIED |
 | R8-16 | Migration chain 0001→0006 applies, rolls back, and reapplies while PR3–PR7 runtime regressions remain green. | canonical migration + hosted PostgreSQL lanes | VERIFIED |
 | R8-17 | Strict TypeScript, source-only test routing, package boundaries, secret scan, PostgreSQL verification, and dependency audit pass. | hosted CI | VERIFIED |
-| R8-18 | Declared PR8 executable/config/test artifacts have SHA-256 closure and the exact final branch head passes hosted verification. | PR8 manifest + final-head CI | PARTIAL — packaging/final-head gate pending |
+| R8-18 | Declared PR8 executable/config/test artifacts have deterministic SHA-256 closure. | 26-artifact PR8 manifest enforced by hosted run 38985947401/job 117257323034 | VERIFIED |
 | R8-19 | Direct general ActionStage scheduling, external exactly-once guarantees, automatic reconciliation, API/SDK/CLI/UI/RBAC, HA/backup, production readiness, and SOTA claims are excluded. | scope docs + PR body | N/A — outside declared PR8 slice |
 
-PR8 is merge-ready only when R8-18 is VERIFIED on the exact final branch head.
+All declared static PR8 requirements are VERIFIED for the PostgreSQL 17 reference target. Promotion from draft additionally requires the documentation-only final branch head to pass the complete hosted source/PostgreSQL/audit chain without changing any manifest-covered artifact.
