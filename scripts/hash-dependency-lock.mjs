@@ -10,6 +10,7 @@ const artifacts = [
   ".github/workflows/ci.yml",
   "scripts/hash-dependency-lock.mjs",
   "packages/api/package.json",
+  "packages/cli/package.json",
   "packages/connectors/package.json",
   "packages/contracts/package.json",
   "packages/core/package.json",

@@ -85,15 +85,6 @@ function parseGlobals(
     if (token !== undefined) args.push(token);
   }
 
-  try {
-    const parsed = new URL(baseUrl);
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      throw new Error("unsupported protocol");
-    }
-  } catch {
-    throw new CliUsageError("--base-url / AEGISFLOW_BASE_URL must be an http(s) URL.");
-  }
-
   return { baseUrl, args };
 }
 
@@ -181,6 +172,14 @@ function requireJsonObject(value: unknown, label: string): JsonObject {
 }
 
 function createClient(baseUrl: string, fetcher: typeof globalThis.fetch | undefined): AegisFlowClient {
+  try {
+    const parsed = new URL(baseUrl);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      throw new Error("unsupported protocol");
+    }
+  } catch {
+    throw new CliUsageError("--base-url / AEGISFLOW_BASE_URL must be an http(s) URL.");
+  }
   return fetcher === undefined
     ? new AegisFlowClient({ baseUrl })
     : new AegisFlowClient({ baseUrl, fetch: fetcher });
@@ -189,7 +188,7 @@ function createClient(baseUrl: string, fetcher: typeof globalThis.fetch | undefi
 async function handleFlow(
   action: string | undefined,
   args: readonly string[],
-  client: AegisFlowClient,
+  getClient: () => AegisFlowClient,
   readTextFile: (path: string) => Promise<string>,
   stdout: (text: string) => void,
 ): Promise<void> {
@@ -209,7 +208,7 @@ async function handleFlow(
     return;
   }
 
-  const registered = await client.registerFlow(definition);
+  const registered = await getClient().registerFlow(definition);
   writeJson(stdout, {
     flowId: registered.flow.id,
     flowVersionId: registered.version.id,
@@ -320,18 +319,22 @@ export async function runCli(
     const { baseUrl, args } = parseGlobals(argv, env);
     const [resource, action, ...rest] = args;
     if (resource === undefined) throw new CliUsageError("A resource command is required.");
-    const client = createClient(baseUrl, dependencies.fetch);
+    let client: AegisFlowClient | undefined;
+    const getClient = (): AegisFlowClient => {
+      client ??= createClient(baseUrl, dependencies.fetch);
+      return client;
+    };
 
     if (resource === "flow") {
-      await handleFlow(action, rest, client, readTextFile, stdout);
+      await handleFlow(action, rest, getClient, readTextFile, stdout);
       return 0;
     }
     if (resource === "execution") {
-      await handleExecution(action, rest, client, stdout);
+      await handleExecution(action, rest, getClient(), stdout);
       return 0;
     }
     if (resource === "gate") {
-      await handleGate(action, rest, client, readTextFile, stdout);
+      await handleGate(action, rest, getClient(), readTextFile, stdout);
       return 0;
     }
     throw new CliUsageError(`Unknown resource '${resource}'.`);

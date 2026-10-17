@@ -322,3 +322,119 @@ test("missing idempotency key is a usage failure and makes no request", async ()
   assert.equal(fetched, false);
   assert.equal(JSON.parse(io.output().stderr).error.code, "CLI_USAGE");
 });
+
+test("flow validate remains local even when API URL configuration is invalid", async () => {
+  const io = capture();
+  const code = await runCli(
+    ["flow", "validate", "flow.json"],
+    {
+      ...io,
+      env: { AEGISFLOW_BASE_URL: "not-a-url" },
+      readTextFile: async () => JSON.stringify(flow),
+      fetch: async () => { throw new Error("unexpected fetch"); },
+    },
+  );
+  assert.equal(code, 0);
+  assert.equal(JSON.parse(io.output().stdout).valid, true);
+});
+
+test("remote commands reject non-http API URLs before network access", async () => {
+  const io = capture();
+  let fetched = false;
+  const code = await runCli(
+    ["--base-url", "file:///tmp/control.sock", "execution", "inspect", "exec_aaaaaaaa"],
+    {
+      ...io,
+      fetch: async () => {
+        fetched = true;
+        throw new Error("unexpected fetch");
+      },
+    },
+  );
+  assert.equal(code, 2);
+  assert.equal(fetched, false);
+  assert.equal(JSON.parse(io.output().stderr).error.code, "CLI_USAGE");
+});
+
+test("malformed execution identifiers fail before network access", async () => {
+  const io = capture();
+  let fetched = false;
+  const code = await runCli(
+    ["execution", "inspect", "not-an-execution-id"],
+    {
+      ...io,
+      fetch: async () => {
+        fetched = true;
+        throw new Error("unexpected fetch");
+      },
+    },
+  );
+  assert.equal(code, 2);
+  assert.equal(fetched, false);
+  assert.equal(JSON.parse(io.output().stderr).error.code, "INVALID_ID");
+});
+
+test("Gate evidence must be a JSON object before authority-bearing request", async () => {
+  const io = capture();
+  let fetched = false;
+  const code = await runCli(
+    ["gate", "approve", "gate_aaaaaaaa", "--actor", "reviewer", "--evidence", "evidence.json"],
+    {
+      ...io,
+      readTextFile: async () => JSON.stringify(["not", "an", "object"]),
+      fetch: async () => {
+        fetched = true;
+        throw new Error("unexpected fetch");
+      },
+    },
+  );
+  assert.equal(code, 2);
+  assert.equal(fetched, false);
+  assert.equal(JSON.parse(io.output().stderr).error.code, "CLI_USAGE");
+});
+
+test("CLI JSON inputs larger than 1 MiB fail closed before network access", async () => {
+  const io = capture();
+  let fetched = false;
+  const oversized = `{"name":"approval-demo","padding":"${"x".repeat(1_048_576)}","stages":[]}`;
+  const code = await runCli(
+    ["flow", "submit", "oversized.json"],
+    {
+      ...io,
+      readTextFile: async () => oversized,
+      fetch: async () => {
+        fetched = true;
+        throw new Error("unexpected fetch");
+      },
+    },
+  );
+  assert.equal(code, 2);
+  assert.equal(fetched, false);
+  assert.match(JSON.parse(io.output().stderr).error.message, /1 MiB/u);
+});
+
+test("unknown and duplicate options are rejected deterministically", async () => {
+  const unknown = capture();
+  const unknownCode = await runCli(
+    ["execution", "inspect", "exec_aaaaaaaa", "--bogus", "value"],
+    unknown,
+  );
+  assert.equal(unknownCode, 2);
+  assert.match(JSON.parse(unknown.output().stderr).error.message, /Unknown option/u);
+
+  const duplicate = capture();
+  const duplicateCode = await runCli(
+    [
+      "execution",
+      "start",
+      "flow_aaaaaaaa",
+      "--idempotency-key",
+      "first",
+      "--idempotency-key",
+      "second",
+    ],
+    duplicate,
+  );
+  assert.equal(duplicateCode, 2);
+  assert.match(JSON.parse(duplicate.output().stderr).error.message, /only once/u);
+});
