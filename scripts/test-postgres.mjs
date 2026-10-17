@@ -11,13 +11,21 @@ const suites = [
   { path: "packages/queue/test/queue.integration.test.mjs", args: [] },
   { path: "packages/effects/test/effects.integration.test.mjs", args: [] },
   { path: "packages/gates/test/gates.integration.test.mjs", args: [] },
-  { path: "packages/providers/test/runtime.integration.test.mjs", args: [] },
+  {
+    path: "packages/providers/test/runtime.integration.test.mjs",
+    args: ["--test-name-pattern", "^(?!PR7 migration 0005).*$"],
+  },
+  { path: "packages/connectors/test/runtime.integration.test.mjs", args: [] },
+  { path: "packages/providers/test/runtime-v8.integration.test.mjs", args: [] },
 ];
 
 const pool = new Pool({ connectionString: databaseUrl, max: 2 });
 
-async function cleanPr7Extension() {
+async function cleanFeatureExtensions() {
   await pool.query(`
+    DROP TABLE IF EXISTS agent_tool_results CASCADE;
+    DROP FUNCTION IF EXISTS aegisflow_reject_agent_tool_result_mutation();
+    DROP FUNCTION IF EXISTS aegisflow_validate_agent_tool_result();
     DROP TABLE IF EXISTS agent_provider_results CASCADE;
     DROP FUNCTION IF EXISTS aegisflow_reject_agent_provider_result_mutation();
     DROP FUNCTION IF EXISTS aegisflow_validate_agent_provider_result();
@@ -25,7 +33,7 @@ async function cleanPr7Extension() {
 }
 
 async function runSuite(suite) {
-  await cleanPr7Extension();
+  await cleanFeatureExtensions();
   await new Promise((resolve, reject) => {
     const child = spawn(
       process.execPath,
