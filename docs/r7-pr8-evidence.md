@@ -16,7 +16,7 @@ PR8 does not claim a Control API/SDK/CLI, UI, authenticated AegisFlow user/RBAC,
 6. Known external rejection is distinct from an unknown/ambiguous external outcome.
 7. Recovery never blindly replays a claimed provider/tool call whose outcome is unknown.
 8. Every tool in a provider turn is allow-list/registry preflighted before the first side effect in that turn.
-9. Worker fencing remains authoritative after provider or connector execution and before durable success is committed.
+9. Worker fencing remains authoritative after provider or connector execution and before durable Stage success is committed.
 10. The two-argument Agent runtime remains the PR7 fail-closed compatibility path.
 
 ## Failure / repair ledger
@@ -26,7 +26,6 @@ PR8 does not claim a Control API/SDK/CLI, UI, authenticated AegisFlow user/RBAC,
 Initial hosted run `38984956578`, job `117254145843`, head `270826b616b4d83ca2040cb7e06396e3e28dd892` failed source/type verification before PostgreSQL ran.
 
 Reproducer:
-
 - GitHub and Slack constructors supplied `fetch: FetchLike | undefined` to an exact optional `fetch?: FetchLike` field;
 - Slack result parsing did not narrow generic JSON objects strongly enough for TypeScript.
 
@@ -37,7 +36,6 @@ Root cause: PR8 connector integration did not preserve `exactOptionalPropertyTyp
 Earliest invalidated phase: **INTEGRATE / TYPECHECK**.
 
 Selective repair:
-
 - omit the `fetch` key when no injected transport exists;
 - explicitly narrow Slack response/body JSON records.
 
@@ -50,7 +48,6 @@ Dependent source verification passed afterward.
 Run `38985045147`, job `117254436178`, head `dad42eb244287dde4cef83f9391546773dbfdbd2` passed source compilation but exposed verification-harness drift in PostgreSQL.
 
 Observed evidence before the failure:
-
 - persistence 8/8 PASS;
 - queue/fencing 8/8 PASS;
 - Effect ledger 13/13 PASS;
@@ -66,7 +63,6 @@ Root cause: stale test-harness assumptions, not connector/runtime semantics.
 Earliest invalidated phase: **VERIFY / TEST ROUTING**.
 
 Selective repair:
-
 - the canonical persistence migration regression now owns the complete `0001 → 0006` apply/rollback/reapply chain;
 - the PR8 connector suite separately verifies `0006` rollback/reapply while preserving PR7 `0005`;
 - source `npm test` explicitly runs source-only files;
@@ -79,7 +75,6 @@ Relevant repair lineage includes `e9d7dddfe521ccf6e4417ba429c12b0232315efe`, `e1
 An adversarial design review after the verification-routing repair found a governance defect before closure: GitHub and Slack connectors persisted an `authorityScope` label but did not yet mechanically constrain GitHub API path or Slack channel destination.
 
 Reproducer:
-
 - a GitHub connector configured for a repository could otherwise be asked to call another repository path with the same token;
 - a Slack connector could otherwise be asked to post to another channel reachable by the token.
 
@@ -90,7 +85,6 @@ Root cause: initial connector design separated credential injection from destina
 Earliest invalidated phase: **FALSIFY / AUTHORITY REVIEW**.
 
 Selective repair:
-
 - GitHub now requires non-empty normalized `allowedPathPrefixes` and rejects path escape/traversal outside them before transport;
 - Slack now requires non-empty `allowedChannels` and rejects off-authority channels before transport;
 - unit tests assert the blocked request does not reach the injected transport.
@@ -114,7 +108,7 @@ Run `38985480963`, job `117255846097`, head `6e81733450e94fdd16e48132131743c68aa
 
 ## Targeted worker-fencing failure injection
 
-A dedicated test then forced the active PR8 worker lease to expire *inside the provider callback after the external provider returned but before provider-result persistence*.
+A dedicated test forced the active PR8 worker lease to expire inside the provider callback after the external provider returned but before provider-result persistence.
 
 Run `38985616233`, job `117256272953`, code head `b743f6fae9b80268189309e2617770f2e0cb9a20` passed:
 
@@ -133,6 +127,21 @@ Run `38985616233`, job `117256272953`, code head `b743f6fae9b80268189309e2617770
 
 The stale worker did not persist provider success, its provider Effect remained `CLAIMED`, and no durable provider result was created. A replacement worker recovered the Stage, did **not** invoke the provider a second time, and quarantined the unknown provider outcome as `RECONCILIATION_REQUIRED`.
 
+## Artifact closure
+
+A deterministic manifest covers **26 executable/config/test artifacts**. Manifest-generation run `38985795509`, job `117256845859`, head `c38db93850c3040dfbada347e9e7621e5a60cc6f` emitted the digest set while the full 42-source/66-PostgreSQL/audit chain remained green.
+
+The digest file was then committed as `docs/r7-pr8-manifest.sha256`. Manifest-enforced run `38985947401`, job `117257323034`, documentation candidate head `dbb745f43e3729bd40a4789b350b0a20f92f65bf` passed:
+
+- PR8 manifest: **26/26 verified**;
+- source/unit: **42/42 PASS**;
+- PostgreSQL integration: **66/66 PASS**;
+- runtime dependency audit: PASS, zero vulnerabilities;
+- cleanup: PASS;
+- overall job: SUCCESS.
+
+No documentation file is part of the executable manifest, preventing an evidence-document self-hash cycle.
+
 ## Evidence boundaries
 
 Executed evidence establishes the declared PostgreSQL 17 connector/tool-runtime semantics only. It does not establish:
@@ -150,4 +159,4 @@ The repository still has no committed `package-lock.json`. The PR8 manifest ther
 
 ## Closure state
 
-Core PR8 semantics and targeted fencing are **VERIFIED**. Artifact-manifest generation/enforcement and an exact final-head hosted run remain the last closure gates before PR8 can be promoted from draft to merge-ready.
+All declared static PR8 requirements, targeted fencing, and the executable artifact manifest are **VERIFIED** for the PostgreSQL 17 reference target. The only remaining promotion gate is a full hosted run on the exact documentation-only final branch head; no manifest-covered file may change after this ledger commit.
