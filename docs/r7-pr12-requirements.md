@@ -3,23 +3,31 @@
 Source: `AEGISFLOW_MASTER_HANDOFF.md` PR12, flagship demo, testing strategy, CI gates, V1 success criteria, and inherited runtime invariants.
 
 | ID | Requirement | Source | Criticality | Acceptance evidence | State |
-| --- | --- | --- | --- | --- |
-| R12-01 | Provide a valid flagship Incident Response Flow example. | USER | HARD | Checked-in Flow validates/registers through public SDK/API. | OPEN |
-| R12-02 | Demonstrate deterministic Flow execution. | USER | HARD | API start -> queue claim -> durable successful Stage/Attempt/Claim -> SDK inspection. | OPEN |
-| R12-03 | Demonstrate Agent reasoning without external credentials. | USER | HARD | Deterministic provider + schema-validated final result + provider Effect evidence. | OPEN |
-| R12-04 | Demonstrate durable human Gate semantics. | USER | HARD | Gate WAITING -> APPROVED, evidence retained, duplicate decision deterministic. | OPEN |
-| R12-05 | Demonstrate an external Effect and duplicate suppression. | USER / DOMAIN | HARD | Connector called once; replay returns durable result for same stable Effect identity. | OPEN |
-| R12-06 | Demonstrate transient failure and retry. | USER | HARD | Expired lease -> Attempt 1 TIMED_OUT -> recovered Attempt 2 -> SUCCEEDED. | OPEN |
-| R12-07 | Demonstrate actual worker crash and recovery. | USER | HARD | Child process claims work, is killed, lease expires, replacement generation completes. | OPEN |
-| R12-08 | Demonstrate stale-worker fencing. | USER / DOMAIN | HARD | Old generation completion rejected with STALE_CLAIM after recovery. | OPEN |
-| R12-09 | Demonstrate wait/signal resume and duplicate-signal idempotency. | USER | HARD | SDK Signal resumes Stage; duplicate key replays same durable Signal. | OPEN |
-| R12-10 | Demonstrate ambiguous side effect requiring reconciliation. | USER / DOMAIN | HARD | Effect becomes RECONCILIATION_REQUIRED; no blind retry; explicit reconciliation recorded. | OPEN |
-| R12-11 | Include a public API -> runtime/worker -> PostgreSQL -> result E2E path. | USER | HARD | PR12 semantic suite starts real Control API and observes durable state through SDK plus production authorities. | OPEN |
-| R12-12 | Run deterministic examples in actual CI. | USER / R7 | HARD | Observed GitHub Actions run on exact PR12 head executes `npm run demo:pr12`. | OPEN |
-| R12-13 | Preserve PR1-PR11 authority boundaries; no second runtime/state model. | DOMAIN | HARD | Harness imports production public/runtime packages; no production authority bypass; normal boundary/regression gates green. | OPEN |
-| R12-14 | Do not present timing observations as performance superiority. | R7 | HARD | Report declares semantic-correctness benchmark and `performanceClaim: false`; no timing gate. | OPEN |
-| R12-15 | Preserve all existing regressions, PostgreSQL tests, dependency audit and reproducible install. | R7 | HARD | Full CI gates green. | OPEN |
-| R12-16 | Seal PR12 artifacts/evidence with real checksums. | R7 | HARD | PR12 manifest verifies on final exact head. | OPEN |
+| --- | --- | --- | --- | --- | --- |
+| R12-01 | Provide a valid flagship Incident Response Flow example. | USER | HARD | Checked-in Flow validates/registers through public SDK/API. | VERIFIED |
+| R12-02 | Demonstrate deterministic Flow execution. | USER | HARD | API start -> queue claim -> durable successful Stage/Attempt/Claim -> SDK inspection. | VERIFIED |
+| R12-03 | Demonstrate Agent reasoning without external credentials. | USER | HARD | Deterministic provider + schema-validated final result + provider Effect evidence. | VERIFIED |
+| R12-04 | Demonstrate durable human Gate semantics. | USER | HARD | Gate WAITING -> APPROVED, evidence retained, duplicate decision deterministic. | VERIFIED |
+| R12-05 | Demonstrate an external Effect and duplicate suppression. | USER / DOMAIN | HARD | Connector called once; replay returns durable result for same stable Effect identity. | VERIFIED |
+| R12-06 | Demonstrate transient failure and retry. | USER | HARD | Expired lease -> Attempt 1 TIMED_OUT -> recovered Attempt 2 -> SUCCEEDED. | VERIFIED |
+| R12-07 | Demonstrate actual worker crash and recovery. | USER | HARD | Child process claims work, is killed, lease expires, replacement generation completes. | VERIFIED |
+| R12-08 | Demonstrate stale-worker fencing. | USER / DOMAIN | HARD | Old generation completion rejected with STALE_CLAIM after recovery. | VERIFIED |
+| R12-09 | Demonstrate wait/signal resume and duplicate-signal idempotency. | USER | HARD | SDK Signal resumes Stage; duplicate key replays same durable Signal. | VERIFIED |
+| R12-10 | Demonstrate ambiguous side effect requiring reconciliation. | USER / DOMAIN | HARD | Effect becomes RECONCILIATION_REQUIRED; no blind retry; explicit reconciliation recorded. | VERIFIED |
+| R12-11 | Include a public API -> runtime/worker -> PostgreSQL -> result E2E path. | USER | HARD | PR12 suite starts real Control API and observes durable state through SDK plus production authorities. | VERIFIED |
+| R12-12 | Run deterministic examples in actual CI. | USER / R7 | HARD | GitHub Actions CI #255 executed `npm run demo:pr12` on implementation head `91b4b937c83f7fbd62ce52ea2f23a4fb01f48029`. | VERIFIED |
+| R12-13 | Preserve PR1-PR11 authority boundaries; no second runtime/state model. | DOMAIN | HARD | Existing boundary/regression gates and PR12 composition passed. | VERIFIED |
+| R12-14 | Do not present timing observations as performance superiority. | R7 | HARD | Report declares `benchmarkKind=semantic-correctness`, `performanceClaim=false`; no timing gate. | VERIFIED |
+| R12-15 | Preserve all existing regressions, PostgreSQL tests, dependency audit and reproducible install. | R7 | HARD | CI #255 full chain green; runtime dependency audit reports zero vulnerabilities. | VERIFIED |
+| R12-16 | Seal PR12 artifacts/evidence with real checksums. | R7 | HARD | PR12 manifest is committed from CI-generated artifact hashes; final sealing head must verify it. | CONDITIONAL |
+
+## Verification anchor
+
+GitHub Actions CI run #255 (`39013841968`) completed successfully on implementation head `91b4b937c83f7fbd62ce52ea2f23a4fb01f48029`.
+
+The executed PR12 report recorded **10/10 passing scenarios**: one flagship Flow contract scenario plus all nine handoff-required behavioral scenarios. The report explicitly declared `benchmarkKind: "semantic-correctness"` and `performanceClaim: false`.
+
+The process-kill scenario used a real separate Node process, terminated it with `SIGKILL`, recovered the Stage under generation 2 after lease expiry, and completed via a replacement worker.
 
 ## Hard invariants
 
