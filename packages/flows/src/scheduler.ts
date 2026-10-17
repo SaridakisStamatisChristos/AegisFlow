@@ -195,7 +195,7 @@ async function setExecutionState(
   desired: "RUNNING" | "WAITING" | "SUCCEEDED" | "FAILED",
 ): Promise<ExecutionState> {
   if (current === "CANCELLED" || current === "SUCCEEDED" || current === "FAILED") return current;
-  let state = current;
+  let state: ExecutionState = current;
   const apply = async (event: "WAIT" | "RESUME" | "SUCCEED" | "FAIL"): Promise<void> => {
     const transition = transitionExecution(state, event);
     const updated = await client.query(
