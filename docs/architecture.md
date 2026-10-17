@@ -2,9 +2,24 @@
 
 ## Decision summary
 
-AegisFlow uses a TypeScript/Node monorepo with PostgreSQL as the single reference durability substrate for V1. Domain contracts and pure state machines remain independent of PostgreSQL, HTTP frameworks, model SDKs, connector SDKs, wall-clock time, and randomness.
+AegisFlow is a TypeScript/Node monorepo with PostgreSQL as the single reference
+durability and coordination substrate for V1. Domain contracts and pure state
+machines remain independent of PostgreSQL, HTTP frameworks, model SDKs, connector
+SDKs, wall-clock time, and randomness.
 
-PR1 introduced `@aegisflow/contracts`; PR2 `@aegisflow/core`; PR3 `@aegisflow/persistence`; PR4 `@aegisflow/queue`; PR5 `@aegisflow/effects`; PR6 `@aegisflow/gates`; PR7 `@aegisflow/providers`; and PR8 adds `@aegisflow/connectors` plus bounded Agent tool execution.
+The implemented package layers are:
+
+- `@aegisflow/contracts` — immutable public contracts and validation;
+- `@aegisflow/core` — pure state machines;
+- `@aegisflow/persistence` — PostgreSQL migrations and repositories;
+- `@aegisflow/queue` — worker claims, leases, fencing, attempts, and recovery;
+- `@aegisflow/effects` — external Effect identity, completion, and reconciliation;
+- `@aegisflow/gates` — human approval authority and dependent-stage protection;
+- `@aegisflow/flows` — durable graph reconciliation and passive-stage scheduling;
+- `@aegisflow/connectors` — governed external tools;
+- `@aegisflow/providers` — provider execution and bounded provider/tool loops;
+- `@aegisflow/api` — public control plane and scheduler process integration;
+- `@aegisflow/sdk`, `@aegisflow/cli`, and `@aegisflow/console` — client/operator surfaces.
 
 ## Dependency rule
 
@@ -14,118 +29,165 @@ PR1 introduced `@aegisflow/contracts`; PR2 `@aegisflow/core`; PR3 `@aegisflow/pe
         |
 @aegisflow/core
 
-@aegisflow/contracts
-        ^
-        |
-@aegisflow/persistence ---> pg / Node filesystem only
+@aegisflow/persistence ----> contracts + pg
         ^
         |\
-        | +---- @aegisflow/queue ----> @aegisflow/core + pg
-        | +---- @aegisflow/gates ----> @aegisflow/core + pg
-        | +---- @aegisflow/effects --> @aegisflow/core + pg + node:crypto
+        | +---- queue ------> core + persistence + pg
+        | +---- gates ------> core + persistence + pg
+        | +---- effects ----> core + persistence + pg
         |
-        +------ @aegisflow/connectors --> @aegisflow/effects + pg
-                         ^
-                         |
-        @aegisflow/providers --> @aegisflow/queue + @aegisflow/effects + pg
+        +------ connectors --> effects + pg
+
+flows ------> contracts + core + gates + pg
+providers --> contracts + queue + effects + connectors + pg
+api -------> contracts + core + effects + gates + flows + pg
+sdk -------> contracts
+cli -------> contracts + sdk
+console ---> contracts + sdk
 ```
 
-Persistence does not depend back on authority/runtime services. Connectors do not create a parallel side-effect authority layer; they execute under PR5 Effects. Providers compose immutable Agent contracts with worker Claims, provider Effects, and connector execution.
+Persistence does not depend back on runtime/authority services. The scheduler does
+not create a second state model. Connectors do not create a second side-effect
+ledger. Providers compose immutable Agent contracts with worker Claims, provider
+Effects, and connector execution.
 
-## Architectural invariants
+## Runtime authority model
 
-### PostgreSQL-first durability
+A Stage may be eligible according to the Flow graph while still lacking authority
+to perform work. These concerns remain separate:
 
-PostgreSQL remains the only required durable coordination substrate in V1. PR8 does not introduce Redis, Kafka, RabbitMQ, NATS, or Kubernetes.
+1. **Flow scheduler authority** determines graph eligibility, passive waits/signals,
+   Gate materialization, skip propagation, and aggregate Execution state.
+2. **Gate authority** determines whether protected work is permitted.
+3. **Worker Claim authority** determines which worker may advance worker-owned Stage work.
+4. **Effect authority** determines whether one logical external side effect may be
+   attempted, suppressed, or quarantined for reconciliation.
+5. **Pinned Flow Version authority** determines Agent provider, instruction, tool
+   allow-list, step budget, and output schema.
 
-### Authority layers remain distinct
+A model response never grants any of these authorities.
 
-- PR4 Worker Claim authority answers which worker may advance Stage work.
-- PR5 Effect authority answers whether one logical external side effect may be attempted/replayed.
-- PR6 Gate authority answers whether protected Stage work is permitted to acquire worker authority.
-- PR7/PR8 provider and connector execution compose those authorities; they do not bypass them.
+## Durable graph reconciliation
 
-### Agent policy is pinned to the Flow Version
+`@aegisflow/flows` locks an Execution and its materialized Stage rows, validates them
+against the pinned Flow Version, and converges immediate graph transitions within a
+bounded pass count.
 
-Provider ID, instruction, tool allow-list, step budget, and output schema come from the Execution's immutable Flow Version. A provider-returned tool name is executable only if it is both present in that immutable allow-list and registered in the connector registry.
+For currently implemented scheduler-owned behavior:
 
-### Provider and connector calls are external Effects
+- a `BLOCKED` Stage becomes `READY` only after every dependency succeeds;
+- a failed/cancelled/skipped dependency causes blocked descendants to become
+  `SKIPPED`, preventing dead graph tails;
+- a Signal Stage entering eligibility consumes a matching already-durable Signal,
+  including a Signal that arrived while the Stage was still blocked;
+- otherwise an eligible Signal Stage becomes `WAITING` until a matching durable
+  Signal exists;
+- a Wait Stage persists its waiting timestamp in `stage_executions.updated_at` and
+  resumes deterministically after its delay or absolute timestamp is due;
+- an eligible Gate Stage receives a deterministic durable Gate and remains waiting
+  until the Gate ledger resolves it;
+- aggregate Stage state drives the parent Execution among `RUNNING`, `WAITING`,
+  `SUCCEEDED`, and `FAILED` through the existing core state machine.
 
-Every provider step has a stable Effect identity derived from StageExecution + step. Every connector call has a stable Effect identity derived from StageExecution + provider step + tool-call ID.
+The API process runs bounded non-overlapping scheduler ticks. PostgreSQL row locks
+serialize concurrent reconcilers for one Execution.
 
-Normalized provider/tool evidence is persisted before its Effect is marked successful. Recovery reuses durable evidence and quarantines a claimed provider/tool Effect with no durable result as reconciliation-required instead of replaying it.
+Worker-owned Task/Agent/Action execution remains separate from graph eligibility and
+must continue to use the existing Claim/Effect/Gate authorities. General dynamic
+graph mutation and arbitrary loops/subflows remain non-goals for V1.
 
-### Worker fencing remains authoritative across external calls
+## External-call durability
 
-The Agent runtime acquires a PR4 Claim before provider/tool execution and refreshes authority around external calls. A stale worker cannot persist provider success or finish the Stage. A targeted PR8 failure injection expires the lease after a provider returns and proves that recovery does not call the provider again.
+Every provider step has a stable Effect identity derived from StageExecution + step.
+Every connector call has a stable Effect identity derived from StageExecution +
+provider step + tool-call ID.
 
-### Connector credentials and destinations are separate trust inputs
+Normalized provider/tool evidence is immutable PostgreSQL evidence. A result cannot
+be cross-bound to another StageExecution's Effect.
 
-Credentials and transports are injected by operator configuration and are not accepted from Agent tool input or stored in Effect/result evidence.
+For provider calls, local evidence insertion and Effect transition to `SUCCEEDED`
+are now committed in one PostgreSQL transaction. This removes the previous local
+split-state window in which provider evidence could exist while the Effect remained
+`CLAIMED`.
 
-- Generic HTTP requires HTTPS origins from an explicit allow-list and rejects Agent-supplied credential/transport headers.
+If worker authority is lost after a provider returns, the provider Effect is moved
+to `RECONCILIATION_REQUIRED` rather than replayed. If a Stage is cancelled while it
+still owns a `CLAIMED` Effect, a database trigger quarantines that Effect for
+reconciliation. Cancellation therefore cannot permanently strand an in-flight
+Effect as authoritative.
+
+These guarantees do not claim exactly-once behavior inside arbitrary external
+systems. A remote system may still commit while the process loses the response;
+that is why reconciliation exists.
+
+## Connector trust boundaries
+
+Credentials and transports are injected by operator configuration and are not
+accepted from Agent tool input or stored in Effect/result evidence.
+
+- Generic HTTP requires HTTPS origins from an explicit allow-list and rejects
+  Agent-supplied credential/transport headers.
 - GitHub is fixed to `api.github.com` and requires normalized allowed API path prefixes.
 - Slack is fixed to `chat.postMessage` and requires explicit allowed channel IDs.
 
-The textual `authorityScope` is durable evidence context; path/channel/origin enforcement is performed mechanically by each connector.
+The textual `authorityScope` is durable evidence context; destination enforcement is
+mechanical inside each connector.
 
-### Provider/tool evidence is immutable
+## Control plane and operator surfaces
 
-`agent_provider_results` and `agent_tool_results` are immutable PostgreSQL evidence. Database validation prevents a result from being cross-bound to another StageExecution's Effect.
+The Control API provides Flow registration/version inspection, execution start and
+inspection, cancellation, events, Effects, Gates, Signals, reconciliation, and
+operator list views. Execution creation and Signal delivery use durable idempotency
+keys.
 
-### Tool turns are bounded and preflighted
+The SDK speaks only to the public API. The CLI and server-rendered console use the
+SDK rather than PostgreSQL internals. Console mutation forms are CSRF-protected and
+HTML output is escaped. API and console route parsing classify malformed
+percent-encoding as client input instead of leaking it into generic 500 handling.
 
-For a provider turn returning multiple tools, the runtime checks **all** tool names against the immutable Agent allow-list and connector registry before executing the first tool. The provider → tool → provider loop cannot exceed immutable `maxSteps`.
+Authentication/RBAC/SSO remain outside the current core-runtime slice. Until an
+authentication layer is deliberately added, the Control API and operator console
+must remain on a trusted network or behind an authenticated reverse proxy.
 
-### Earlier durability invariants remain
+## Verification architecture
 
-Flow Versions stay append-only; Execution bootstrap is atomic; worker Claims retain generation history and fence stale workers; Effect keys converge duplicates and quarantine ambiguous external outcomes; Gates fail closed until approved.
+Hosted CI pins Node 22 and npm 10.9.2 and runs:
 
-## Package roadmap
+- lockfile install reproducibility;
+- lint/typecheck/build and package-boundary checks;
+- source/unit tests;
+- PostgreSQL migration and integration tests;
+- durable queue/Effect/Gate/provider/connector/scheduler failure-path tests;
+- deterministic PR12 scenario/failure injection suite;
+- secret scanning;
+- evidence/dependency manifest verification;
+- production dependency audit at high severity.
 
-- `@aegisflow/contracts` — IDs, public domain types, schemas, error taxonomy.
-- `@aegisflow/core` — pure state machines and retry/cancellation semantics.
-- `@aegisflow/persistence` — PostgreSQL migrations and reference repositories.
-- `@aegisflow/queue` — claims, leases, fencing, heartbeat, expiry, recovery.
-- `@aegisflow/effects` — durable Effect identity, idempotency, and reconciliation.
-- `@aegisflow/gates` — durable human Gate lifecycle and protected-work authority.
-- `@aegisflow/providers` — vendor-neutral provider contract + durable Agent provider/tool loop.
-- `@aegisflow/connectors` — governed HTTP/GitHub/Slack connector execution and durable tool-result evidence.
-- `@aegisflow/flows` — future general graph scheduling/version orchestration.
-- `@aegisflow/policy` — future deterministic allow/require-gate/deny policy layer.
-- `@aegisflow/evidence` — future higher-level ordered durable execution evidence.
-- `@aegisflow/sdk` — future public client used by CLI and web.
+The PostgreSQL test orchestrator runs suites against the current committed migration
+chain and no longer renames migration files in the working checkout. A killed test
+process therefore cannot leave the repository with hidden/missing migrations.
 
 ## Trust boundaries
 
-1. User/API input -> contract validation.
-2. Runtime -> persistence transaction boundary.
-3. Human decision -> Gate row lock + immutable resolution evidence.
-4. Gate approval -> protected Stage becomes eligible for worker Claim authority.
-5. Worker -> Claim owner + lease + generation fencing authority.
-6. Pinned Agent Stage -> provider registry selection and immutable tool allow-list.
-7. Provider output -> bounded normalization + schema/tool validation.
-8. Provider invocation -> Effect planning/claim authority + immutable provider-result evidence.
-9. Tool request -> allow-list + connector-registry preflight.
-10. Connector destination -> connector-specific origin/path/channel enforcement.
-11. Connector invocation -> Effect planning/claim authority + immutable tool-result evidence.
-12. External uncertainty -> reconciliation-required rather than blind retry.
+1. User/API input -> contract and route validation.
+2. API submission -> durable idempotency identity.
+3. Scheduler -> Execution row lock + pinned Flow Version validation.
+4. Human decision -> Gate row lock + immutable resolution evidence.
+5. Gate approval -> protected Stage eligibility.
+6. Worker -> Claim owner + lease + generation fencing authority.
+7. Pinned Agent Stage -> provider registry selection and immutable tool allow-list.
+8. Provider output -> bounded normalization + schema/tool validation.
+9. Provider invocation -> Effect planning/claim authority + atomic local evidence closure.
+10. Tool request -> allow-list + connector-registry preflight.
+11. Connector destination -> connector-specific origin/path/channel enforcement.
+12. Connector invocation -> Effect planning/claim authority + immutable tool evidence.
+13. External uncertainty or cancelled in-flight work -> reconciliation-required, never blind replay.
 
-## Current PR8 guarantees
+## Current limits
 
-For the PostgreSQL 17 reference target, executed tests demonstrate:
-
-- HTTP/GitHub/Slack connector destination and credential boundaries fail closed;
-- tool calls receive stable Effect identities and immutable result evidence;
-- duplicate successful tool execution is suppressed;
-- conflicting intent under the same stable tool identity fails before another external call;
-- known connector rejection and ambiguous external outcome remain distinct;
-- recovered claimed tool/provider calls without durable evidence are quarantined, not replayed;
-- provider → tool → provider execution passes durable tool output into the next provider step;
-- all tools in a turn are preflighted before the first side effect;
-- immutable `maxSteps` stops further tool execution;
-- worker authority loss after provider return cannot commit success;
-- the two-argument PR7 runtime path remains fail-closed for tool execution;
-- migration `0006_agent_tool_results` rolls back/reapplies while prior durability/runtime regression lanes remain green.
-
-PR8 does not establish exactly-once behavior inside external services, automatic reconciliation, correctness of arbitrary third-party APIs, authenticated AegisFlow user identity/RBAC, Control API/SDK/CLI/UI, generic direct ActionStage orchestration, PostgreSQL-major-version portability, HA/backup/deployment readiness, production readiness, or SOTA performance.
+The current implementation is a strong core/runtime reference, not yet a full
+production-readiness claim. Remaining qualification work includes authenticated
+identity/RBAC, secrets-management integration, HA/backups/disaster recovery,
+production observability and SLO evidence, deployment hardening, real-provider
+qualification, and capacity characterization. PostgreSQL-major-version portability
+beyond the CI/reference target is not yet established.
