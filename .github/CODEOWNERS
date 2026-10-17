@@ -1,0 +1,12 @@
+# Default repository owner for review routing.
+* @SaridakisStamatisChristos
+
+# Runtime and durability-sensitive surfaces.
+/packages/persistence/ @SaridakisStamatisChristos
+/packages/queue/ @SaridakisStamatisChristos
+/packages/effects/ @SaridakisStamatisChristos
+/packages/gates/ @SaridakisStamatisChristos
+/packages/flows/ @SaridakisStamatisChristos
+/packages/providers/ @SaridakisStamatisChristos
+/packages/connectors/ @SaridakisStamatisChristos
+/.github/workflows/ @SaridakisStamatisChristos
