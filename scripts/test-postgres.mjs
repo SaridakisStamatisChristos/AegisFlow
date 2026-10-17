@@ -30,6 +30,7 @@ const suites = [
   },
   { path: "packages/connectors/test/runtime.integration.test.mjs", args: [] },
   { path: "packages/providers/test/runtime-v8.integration.test.mjs", args: [] },
+  { path: "packages/providers/test/runtime-v8-fencing.integration.test.mjs", args: [] },
 ];
 
 const pool = new Pool({ connectionString: databaseUrl, max: 2 });
