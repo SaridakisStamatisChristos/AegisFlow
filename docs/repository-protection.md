@@ -26,7 +26,7 @@ require at least one approving review and CODEOWNERS approval for protected path
 
 The current workflow is `.github/workflows/ci.yml`, job `verify`. It runs the
 source/package verification gate, PostgreSQL migration/runtime tests, deterministic
-PR12 failure scenarios, and production dependency audit.
+failure and recovery scenarios, and the production dependency audit.
 
 The branch rule should select the check GitHub exposes for that job (normally
 `ci / verify`). Do not replace it with a weaker subset of the workflow.
