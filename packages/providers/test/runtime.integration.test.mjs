@@ -122,7 +122,7 @@ test.after(async () => {
   await pool.end();
 });
 
-test("PR7 migration 0005 applies, rolls back, and reapplies after the full durable chain", async () => {
+test("provider migration 0005 applies, rolls back, and reapplies after the full durable chain", async () => {
   await dropTestSchema();
   assert.deepEqual(await migrateUp(pool), [
     "0001_initial",
