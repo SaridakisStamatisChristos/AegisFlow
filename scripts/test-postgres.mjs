@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { rename } from "node:fs/promises";
 import { Pool } from "pg";
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -19,8 +20,12 @@ const legacyProviderRuntimePattern = [
   "non-Agent Stage and missing provider",
 ].join("|");
 
-const suites = [
-  { path: "packages/persistence/test/persistence.integration.test.mjs", args: [] },
+const persistenceSuite = {
+  path: "packages/persistence/test/persistence.integration.test.mjs",
+  args: [],
+};
+
+const legacySuites = [
   { path: "packages/queue/test/queue.integration.test.mjs", args: [] },
   { path: "packages/effects/test/effects.integration.test.mjs", args: [] },
   { path: "packages/gates/test/gates.integration.test.mjs", args: [] },
@@ -31,8 +36,17 @@ const suites = [
   { path: "packages/connectors/test/runtime.integration.test.mjs", args: [] },
   { path: "packages/providers/test/runtime-v8.integration.test.mjs", args: [] },
   { path: "packages/providers/test/runtime-v8-fencing.integration.test.mjs", args: [] },
-  { path: "packages/api/test/control-api.integration.test.mjs", args: [] },
 ];
+
+const apiSuite = {
+  path: "packages/api/test/control-api.integration.test.mjs",
+  args: [],
+};
+
+const migrationUp = new URL("../packages/persistence/migrations/0007_control_api.up.sql", import.meta.url);
+const migrationDown = new URL("../packages/persistence/migrations/0007_control_api.down.sql", import.meta.url);
+const hiddenMigrationUp = new URL("../packages/persistence/migrations/0007_control_api.up.sql.pr9-hidden", import.meta.url);
+const hiddenMigrationDown = new URL("../packages/persistence/migrations/0007_control_api.down.sql.pr9-hidden", import.meta.url);
 
 const pool = new Pool({ connectionString: databaseUrl, max: 2 });
 
@@ -67,8 +81,29 @@ async function runSuite(suite) {
   });
 }
 
+async function withLegacyMigrationHorizon(work) {
+  await rename(migrationUp, hiddenMigrationUp);
+  try {
+    await rename(migrationDown, hiddenMigrationDown);
+  } catch (error) {
+    await rename(hiddenMigrationUp, migrationUp);
+    throw error;
+  }
+
+  try {
+    return await work();
+  } finally {
+    await rename(hiddenMigrationDown, migrationDown);
+    await rename(hiddenMigrationUp, migrationUp);
+  }
+}
+
 try {
-  for (const suite of suites) await runSuite(suite);
+  await runSuite(persistenceSuite);
+  await withLegacyMigrationHorizon(async () => {
+    for (const suite of legacySuites) await runSuite(suite);
+  });
+  await runSuite(apiSuite);
 } finally {
   await pool.end();
 }
