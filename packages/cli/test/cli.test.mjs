@@ -100,7 +100,15 @@ test("flow submit validates locally and registers through the public SDK", async
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, "https://api.example.test/v1/flows");
   assert.equal(calls[0].init.method, "POST");
-  assert.deepEqual(JSON.parse(calls[0].init.body), { definition: flow });
+  assert.deepEqual(JSON.parse(calls[0].init.body), {
+    definition: {
+      name: "approval-demo",
+      stages: [
+        { id: "prepare", dependsOn: [], type: "task", handler: "demo.prepare" },
+        { id: "review", dependsOn: ["prepare"], type: "gate", prompt: "Approve?" },
+      ],
+    },
+  });
   assert.deepEqual(JSON.parse(io.output().stdout), {
     flowId: "flow_aaaaaaaa",
     flowVersionId: "flowv_aaaaaaaa",
