@@ -1,0 +1,37 @@
+name: lockfile-bootstrap
+
+on:
+  pull_request:
+    paths:
+      - package.json
+      - packages/*/package.json
+      - .github/workflows/lockfile-bootstrap.yml
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Pin npm declared by packageManager
+        run: npm install --global npm@10.9.2
+      - name: Generate lockfile without lifecycle scripts
+        run: |
+          npm --version
+          npm install --package-lock-only --ignore-scripts
+          npm install --package-lock-only --ignore-scripts
+          git diff --exit-code package.json packages/*/package.json
+          sha256sum package-lock.json
+      - name: Upload generated lockfile
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-lock
+          path: package-lock.json
+          if-no-files-found: error
+          retention-days: 1
