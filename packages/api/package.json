@@ -17,6 +17,7 @@
     "@aegisflow/contracts": "0.1.0",
     "@aegisflow/core": "0.1.0",
     "@aegisflow/effects": "0.1.0",
+    "@aegisflow/flows": "0.1.0",
     "@aegisflow/gates": "0.1.0",
     "pg": "8.23.1"
   }
