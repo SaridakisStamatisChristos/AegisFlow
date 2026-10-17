@@ -9,10 +9,9 @@
       "default": "./dist/index.js"
     }
   },
-  "files": [
-    "dist"
-  ],
+  "files": ["dist"],
   "dependencies": {
+    "@aegisflow/connectors": "0.1.0",
     "@aegisflow/contracts": "0.1.0",
     "@aegisflow/effects": "0.1.0",
     "@aegisflow/queue": "0.1.0",
