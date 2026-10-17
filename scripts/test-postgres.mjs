@@ -38,10 +38,10 @@ const legacySuites = [
   { path: "packages/providers/test/runtime-v8-fencing.integration.test.mjs", args: [] },
 ];
 
-const apiSuite = {
-  path: "packages/api/test/control-api.integration.test.mjs",
-  args: [],
-};
+const apiSuites = [
+  { path: "packages/api/test/control-api.integration.test.mjs", args: [] },
+  { path: "packages/api/test/operator-views.integration.test.mjs", args: [] },
+];
 
 const migrationUp = new URL("../packages/persistence/migrations/0007_control_api.up.sql", import.meta.url);
 const migrationDown = new URL("../packages/persistence/migrations/0007_control_api.down.sql", import.meta.url);
@@ -103,7 +103,7 @@ try {
   await withLegacyMigrationHorizon(async () => {
     for (const suite of legacySuites) await runSuite(suite);
   });
-  await runSuite(apiSuite);
+  for (const suite of apiSuites) await runSuite(suite);
 } finally {
   await pool.end();
 }
