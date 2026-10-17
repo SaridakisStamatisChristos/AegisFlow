@@ -45,32 +45,68 @@ Action execution remains subordinate to the existing worker/runtime authorities.
 
 ## Architecture
 
-```text
-Operator Console / CLI / SDK
-             |
-             v
-        Control API ---- Flow Registry
-             |                |
-             +-------+--------+
-                     v
-              Flow Scheduler
-             /      |       \
-      dependencies waits   signals/gates
-             \      |       /
-              Stage Runtime
-             /      |       \
-       Workers   Providers  Connectors
-          |          |          |
-          +----------+----------+
-                     v
-                Effect Ledger
-                     |
-              External systems
+```mermaid
+flowchart TB
+    subgraph Interfaces["Operator & Developer Interfaces"]
+        Console["Operator Console"]
+        CLI["CLI"]
+        SDK["TypeScript SDK"]
+    end
 
-              PostgreSQL (V1)
-flows / versions / executions / stages / attempts / claims /
-effects / reconciliations / gates / gate decisions /
-provider results / tool results / signals / ordered evidence
+    subgraph ControlPlane["Control Plane"]
+        API["Control API"]
+        Registry["Flow Registry<br/>immutable versions"]
+        Scheduler["Flow Scheduler<br/>dependencies · waits · signals · gates"]
+    end
+
+    subgraph ExecutionPlane["Execution Plane"]
+        StageRuntime["Stage Runtime"]
+        Workers["Workers<br/>leases · heartbeats · fencing"]
+        Providers["Providers<br/>bounded model/tool loops"]
+        Connectors["Governed Connectors<br/>HTTP · GitHub · Slack"]
+    end
+
+    subgraph Governance["Governance & Recovery"]
+        Gates["Human Gates<br/>approval authority"]
+        Effects["Effect Ledger<br/>idempotency · quarantine · reconciliation"]
+        Evidence["Ordered Evidence<br/>execution · provider · tool results"]
+    end
+
+    DB[("PostgreSQL<br/>single coordination substrate")]
+    Human["Human Approvers"]
+    External["External Systems"]
+
+    Console --> API
+    CLI --> API
+    SDK --> API
+
+    API --> Registry
+    API --> Scheduler
+    Registry --> Scheduler
+    Scheduler --> StageRuntime
+    Scheduler <--> Gates
+
+    StageRuntime --> Workers
+    Workers --> Providers
+    Workers --> Connectors
+
+    Providers --> Effects
+    Connectors --> Effects
+    Providers --> Evidence
+    Connectors --> Evidence
+    StageRuntime --> Evidence
+
+    Human --> Gates
+    Effects --> External
+    Connectors --> External
+
+    Registry --> DB
+    Scheduler --> DB
+    StageRuntime --> DB
+    Workers --> DB
+    Gates --> DB
+    Effects --> DB
+    Evidence --> DB
 ```
 
 PostgreSQL is the single required coordination substrate for V1. Contracts and pure
