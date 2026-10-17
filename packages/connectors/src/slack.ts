@@ -3,9 +3,17 @@ import type { ConnectorExecutionContext, ConnectorResult, ToolConnector } from "
 import { ConnectorInvocationError, ToolRuntimeError } from "./errors.js";
 import { HttpConnector, type FetchLike } from "./http.js";
 
+function validateChannel(value: string): string {
+  if (typeof value !== "string" || value.length < 1 || value.length > 128 || /[\u0000\r\n]/u.test(value)) {
+    throw new ToolRuntimeError("INVALID_INPUT", "Slack allowedChannels contains an invalid channel.");
+  }
+  return value;
+}
+
 export interface SlackConnectorOptions {
   readonly token: string;
   readonly authorityScope: string;
+  readonly allowedChannels: readonly string[];
   readonly fetch?: FetchLike;
 }
 
@@ -13,12 +21,17 @@ export class SlackConnector implements ToolConnector {
   readonly toolName = "slack.postMessage";
   readonly authorityScope: string;
   private readonly http: HttpConnector;
+  private readonly allowedChannels: ReadonlySet<string>;
 
   constructor(options: SlackConnectorOptions) {
     if (typeof options.token !== "string" || options.token.length < 1 || /[\u0000\r\n]/u.test(options.token)) {
       throw new ToolRuntimeError("INVALID_INPUT", "Slack token is invalid.");
     }
+    if (options.allowedChannels.length === 0) {
+      throw new ToolRuntimeError("INVALID_INPUT", "Slack connector requires at least one allowed channel.");
+    }
     this.authorityScope = options.authorityScope;
+    this.allowedChannels = new Set(options.allowedChannels.map(validateChannel));
     this.http = new HttpConnector({
       allowedOrigins: ["https://slack.com"],
       authorityScope: options.authorityScope,
@@ -35,6 +48,9 @@ export class SlackConnector implements ToolConnector {
     const text = input.text;
     if (typeof channel !== "string" || channel.length < 1 || channel.length > 128 || /[\u0000\r\n]/u.test(channel)) {
       throw new ConnectorInvocationError("KNOWN_FAILURE", "invalid_channel", "Slack channel is invalid.");
+    }
+    if (!this.allowedChannels.has(channel)) {
+      throw new ConnectorInvocationError("KNOWN_FAILURE", "channel_not_allowed", `Slack channel '${channel}' is outside connector authority.`);
     }
     if (typeof text !== "string" || text.length < 1 || text.length > 40_000 || /\u0000/u.test(text)) {
       throw new ConnectorInvocationError("KNOWN_FAILURE", "invalid_text", "Slack text is invalid.");
