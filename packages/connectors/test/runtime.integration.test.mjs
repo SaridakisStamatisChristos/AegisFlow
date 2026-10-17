@@ -26,8 +26,10 @@ const effects = new PostgresEffectLedger(pool);
 
 async function dropSchema() {
   await pool.query(`
-    DROP TABLE IF EXISTS agent_tool_results, agent_provider_results, gate_resolutions, gate_protections, gates, effect_reconciliations, effects, claims, execution_events, attempts, stage_executions, executions, flow_versions, flows CASCADE;
+    DROP TABLE IF EXISTS signals, api_idempotency, agent_tool_results, agent_provider_results, gate_resolutions, gate_protections, gates, effect_reconciliations, effects, claims, execution_events, attempts, stage_executions, executions, flow_versions, flows CASCADE;
     DROP FUNCTION IF EXISTS aegisflow_quarantine_claimed_effects_on_stage_cancel();
+    DROP FUNCTION IF EXISTS aegisflow_reject_signal_mutation();
+    DROP FUNCTION IF EXISTS aegisflow_validate_signal_execution();
     DROP FUNCTION IF EXISTS aegisflow_reject_agent_tool_result_mutation();
     DROP FUNCTION IF EXISTS aegisflow_validate_agent_tool_result();
     DROP FUNCTION IF EXISTS aegisflow_reject_agent_provider_result_mutation();
@@ -41,7 +43,7 @@ async function dropSchema() {
 }
 
 async function resetData() {
-  await pool.query("TRUNCATE agent_tool_results, agent_provider_results, gate_resolutions, gate_protections, gates, effect_reconciliations, effects, claims, execution_events, attempts, stage_executions, executions, flow_versions, flows RESTART IDENTITY");
+  await pool.query("TRUNCATE signals, api_idempotency, agent_tool_results, agent_provider_results, gate_resolutions, gate_protections, gates, effect_reconciliations, effects, claims, execution_events, attempts, stage_executions, executions, flow_versions, flows RESTART IDENTITY");
 }
 
 function fixture(suffix) {
@@ -79,18 +81,22 @@ function fakeRegistry(execute) {
 test.before(async () => { await dropSchema(); await migrateUp(pool); });
 test.after(async () => { await pool.end(); });
 
-test("PR8 migration 0006 rolls back and reapplies without removing PR7 provider evidence schema", async () => {
+test("PR8 migration 0006 rolls back and reapplies under the current migration chain", async () => {
   await dropSchema();
   assert.deepEqual(await migrateUp(pool), [
     "0001_initial", "0002_worker_claims", "0003_effect_ledger", "0004_durable_gates",
-    "0005_agent_provider_results", "0006_agent_tool_results", "0008_cancel_claimed_effects",
+    "0005_agent_provider_results", "0006_agent_tool_results", "0007_control_api",
+    "0008_cancel_claimed_effects",
   ]);
   assert.notEqual((await pool.query("SELECT to_regclass('public.agent_tool_results') AS t")).rows[0].t, null);
   assert.equal(await rollbackLastMigration(pool), "0008_cancel_claimed_effects");
+  assert.equal(await rollbackLastMigration(pool), "0007_control_api");
   assert.equal(await rollbackLastMigration(pool), "0006_agent_tool_results");
   assert.equal((await pool.query("SELECT to_regclass('public.agent_tool_results') AS t")).rows[0].t, null);
   assert.notEqual((await pool.query("SELECT to_regclass('public.agent_provider_results') AS t")).rows[0].t, null);
-  assert.deepEqual(await migrateUp(pool), ["0006_agent_tool_results", "0008_cancel_claimed_effects"]);
+  assert.deepEqual(await migrateUp(pool), [
+    "0006_agent_tool_results", "0007_control_api", "0008_cancel_claimed_effects",
+  ]);
 });
 
 test("tool execution persists immutable evidence before Effect success and suppresses replay", async () => {

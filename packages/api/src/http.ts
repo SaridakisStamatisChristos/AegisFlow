@@ -73,7 +73,15 @@ function idempotencyKey(request: IncomingMessage): string {
 
 function routePath(request: IncomingMessage): string[] {
   const url = new URL(request.url ?? "/", "http://aegisflow.local");
-  return url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
+  try {
+    return url.pathname.split("/").filter(Boolean).map((part) => decodeURIComponent(part));
+  } catch (error) {
+    throw new ControlApiError(
+      "INVALID_INPUT",
+      "Request path contains malformed percent-encoding.",
+      { cause: error },
+    );
+  }
 }
 
 function statusFor(error: unknown): number {
