@@ -1,0 +1,2 @@
+DROP TRIGGER IF EXISTS stage_executions_quarantine_claimed_effects_on_cancel ON stage_executions;
+DROP FUNCTION IF EXISTS aegisflow_quarantine_claimed_effects_on_stage_cancel();

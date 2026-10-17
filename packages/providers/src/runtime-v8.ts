@@ -17,13 +17,14 @@ import {
   type DurableToolResult,
 } from "@aegisflow/connectors";
 import {
+  completeSucceededEffectInTransaction,
   EffectLedgerError,
   PostgresEffectLedger,
   type DurableEffectRecord,
   type EffectClaimResult,
 } from "@aegisflow/effects";
 import { PostgresWorkerQueue, type ClaimAcquisition } from "@aegisflow/queue";
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import { AgentRuntimeError } from "./errors.js";
 import {
   normalizeProviderResponse,
@@ -100,6 +101,26 @@ function canonicalJson(value: unknown): string {
     return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`).join(",")}}`;
   }
   throw new AgentRuntimeError("INTEGRITY", "Durable provider evidence contains a non-JSON value.");
+}
+
+function mapProviderResult(row: ProviderResultRow): DurableProviderResult {
+  const response = normalizeProviderResponse(row.response);
+  const responseReference = response.providerReference ?? null;
+  if (responseReference !== row.provider_reference) {
+    throw new AgentRuntimeError(
+      "INTEGRITY",
+      "Stored provider reference disagrees with the normalized provider response.",
+    );
+  }
+  return Object.freeze({
+    effectId: parseEffectId(row.effect_id),
+    stageExecutionId: parseStageExecutionId(row.stage_execution_id),
+    step: row.step,
+    provider: row.provider,
+    response,
+    providerReference: row.provider_reference,
+    createdAt: row.created_at,
+  });
 }
 
 function providerIntent(
@@ -208,29 +229,39 @@ export class PostgresAgentRuntime {
     }
   }
 
-  private async persistProviderResult(input: {
-    readonly stageExecutionId: StageExecutionId;
-    readonly step: number;
-    readonly provider: string;
-    readonly response: ProviderResponse;
-  }): Promise<DurableProviderResult> {
+  private async persistProviderResult(
+    client: PoolClient,
+    input: {
+      readonly stageExecutionId: StageExecutionId;
+      readonly step: number;
+      readonly provider: string;
+      readonly response: ProviderResponse;
+    },
+  ): Promise<DurableProviderResult> {
     const identity = agentProviderEffectIdentity(input.stageExecutionId, input.step);
     const json = responseJson(input.response);
     try {
-      const inserted = await this.pool.query<ProviderResultRow>(
+      const inserted = await client.query<ProviderResultRow>(
         `INSERT INTO agent_provider_results (effect_id, stage_execution_id, step, provider, response, provider_reference)
          VALUES ($1, $2, $3, $4, $5::jsonb, $6)
          ON CONFLICT (effect_id) DO NOTHING
          RETURNING effect_id, stage_execution_id, step, provider, response, provider_reference, created_at`,
         [identity.effectId, input.stageExecutionId, input.step, input.provider, JSON.stringify(json), input.response.providerReference ?? null],
       );
-      if (inserted.rows[0] !== undefined) {
-        const durable = await this.legacy.getProviderResult(identity.effectId);
-        if (durable === null) throw new AgentRuntimeError("INTEGRITY", "Provider result insert was not readable.");
-        return durable;
+      const insertedRow = inserted.rows[0];
+      if (insertedRow !== undefined) return mapProviderResult(insertedRow);
+
+      const existingResult = await client.query<ProviderResultRow>(
+        `SELECT effect_id, stage_execution_id, step, provider, response, provider_reference, created_at
+         FROM agent_provider_results
+         WHERE effect_id = $1`,
+        [identity.effectId],
+      );
+      const existingRow = existingResult.rows[0];
+      if (existingRow === undefined) {
+        throw new AgentRuntimeError("INTEGRITY", "Provider result conflict completed without durable evidence.");
       }
-      const existing = await this.legacy.getProviderResult(identity.effectId);
-      if (existing === null) throw new AgentRuntimeError("INTEGRITY", "Provider result conflict completed without durable evidence.");
+      const existing = mapProviderResult(existingRow);
       if (
         existing.stageExecutionId !== input.stageExecutionId ||
         existing.step !== input.step ||
@@ -269,6 +300,78 @@ export class PostgresAgentRuntime {
       leaseMs: input.leaseMs,
     });
     if (live === null) throw new AgentRuntimeError("STALE_AUTHORITY", "Worker Claim authority was lost during Agent execution.");
+  }
+
+  private async quarantineProviderEffect(
+    effectId: EffectId,
+    resolutionCode: string,
+    externalReference?: string,
+  ): Promise<void> {
+    try {
+      const snapshot = await this.effects.getEffect(effectId);
+      if (snapshot?.effect.state !== "CLAIMED") return;
+      await this.effects.completeEffect(effectId, {
+        outcome: "AMBIGUOUS",
+        resolutionCode,
+        ...(externalReference === undefined ? {} : { externalReference }),
+      });
+    } catch {
+      // A concurrent cancellation/recovery may already have terminalized the Effect.
+    }
+  }
+
+  private async persistProviderResultAndCloseEffect(input: {
+    readonly stageExecutionId: StageExecutionId;
+    readonly step: number;
+    readonly provider: string;
+    readonly response: ProviderResponse;
+  }): Promise<{ readonly effect: DurableEffectRecord; readonly providerResult: DurableProviderResult }> {
+    const identity = agentProviderEffectIdentity(input.stageExecutionId, input.step);
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const providerResult = await this.persistProviderResult(client, input);
+      const effect = await completeSucceededEffectInTransaction(client, identity.effectId, {
+        resolutionCode: "provider_response_persisted",
+        ...(providerResult.providerReference === null
+          ? {}
+          : { externalReference: providerResult.providerReference }),
+      });
+      await client.query("COMMIT");
+      return Object.freeze({ effect, providerResult });
+    } catch (error) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {
+        // Preserve the primary transaction failure.
+      }
+
+      // If COMMIT itself had an unknown transport outcome, trust durable readback.
+      try {
+        const [snapshot, durable] = await Promise.all([
+          this.effects.getEffect(identity.effectId),
+          this.legacy.getProviderResult(identity.effectId),
+        ]);
+        if (snapshot?.effect.state === "SUCCEEDED" && durable !== null) {
+          return Object.freeze({ effect: snapshot.effect, providerResult: durable });
+        }
+      } catch {
+        // Fall through to quarantine below.
+      }
+
+      await this.quarantineProviderEffect(
+        identity.effectId,
+        "provider_local_commit_failed",
+        input.response.providerReference,
+      );
+      throw new AgentRuntimeError(
+        "TRANSACTION",
+        "Provider response could not be atomically persisted and closed.",
+        { cause: error },
+      );
+    } finally {
+      client.release();
+    }
   }
 
   private async runProviderStep(input: {
@@ -355,24 +458,24 @@ export class PostgresAgentRuntime {
       throw new AgentRuntimeError("PROVIDER_AMBIGUOUS", "Provider call has an unknown external outcome.", { cause: error });
     }
 
-    await this.heartbeat(input.acquisition, input.runInput);
-    let providerResult: DurableProviderResult;
     try {
-      providerResult = await this.persistProviderResult({
-        stageExecutionId: input.stageExecutionId,
-        step: input.step,
-        provider: input.context.stage.provider,
-        response: normalized,
-      });
-      effect = (await this.effects.completeEffect(identity.effectId, {
-        outcome: "SUCCEEDED",
-        resolutionCode: "provider_response_persisted",
-        ...(providerResult.providerReference === null ? {} : { externalReference: providerResult.providerReference }),
-      })).effect;
+      await this.heartbeat(input.acquisition, input.runInput);
     } catch (error) {
-      throw new AgentRuntimeError("TRANSACTION", "Provider response could not be durably closed.", { cause: error });
+      await this.quarantineProviderEffect(
+        identity.effectId,
+        "worker_authority_lost",
+        normalized.providerReference,
+      );
+      throw error;
     }
-    return Object.freeze({ effect, providerResult });
+
+    const closed = await this.persistProviderResultAndCloseEffect({
+      stageExecutionId: input.stageExecutionId,
+      step: input.step,
+      provider: input.context.stage.provider,
+      response: normalized,
+    });
+    return Object.freeze(closed);
   }
 
   async runAgentStage(input: RunAgentStageInput): Promise<AgentStageRunResult> {

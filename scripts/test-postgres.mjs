@@ -28,6 +28,7 @@ const persistenceSuite = {
 const legacySuites = [
   { path: "packages/queue/test/queue.integration.test.mjs", args: [] },
   { path: "packages/effects/test/effects.integration.test.mjs", args: [] },
+  { path: "packages/effects/test/cancel-quarantine.integration.test.mjs", args: [] },
   { path: "packages/gates/test/gates.integration.test.mjs", args: [] },
   {
     path: "packages/providers/test/runtime.integration.test.mjs",

@@ -105,7 +105,7 @@ test("worker authority lost after provider return cannot commit success and reco
 
   const identity = agentProviderEffectIdentity(data.stageExecutionId, 1);
   assert.equal(providerCalls, 1);
-  assert.equal((await effects.getEffect(identity.effectId)).effect.state, "CLAIMED");
+  assert.equal((await effects.getEffect(identity.effectId)).effect.state, "RECONCILIATION_REQUIRED");
   assert.equal(await runtime.getProviderResult(identity.effectId), null);
   assert.equal(
     (await pool.query("SELECT state FROM stage_executions WHERE id = $1", [data.stageExecutionId])).rows[0].state,
