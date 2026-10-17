@@ -19,7 +19,7 @@
     "clean": "node scripts/clean.mjs",
     "lint": "node scripts/lint.mjs",
     "typecheck": "npm run build:contracts --silent && npm run build:core --silent && npm run build:persistence --silent && npm run build:queue --silent && npm run build:effects --silent && npm run build:connectors --silent && tsc -p packages/gates/tsconfig.json --noEmit --pretty false && tsc -p packages/providers/tsconfig.json --noEmit --pretty false",
-    "test": "npm run build --silent && node --test packages/contracts/test/*.test.mjs packages/core/test/*.test.mjs packages/connectors/test/*.test.mjs packages/providers/test/provider.test.mjs",
+    "test": "npm run build --silent && node --test packages/contracts/test/*.test.mjs packages/core/test/*.test.mjs packages/connectors/test/connectors.test.mjs packages/providers/test/provider.test.mjs",
     "test:postgres": "npm run build --silent && node scripts/test-postgres.mjs",
     "boundaries": "node scripts/check-boundaries.mjs",
     "secret:scan": "node scripts/check-secrets.mjs",
