@@ -1,6 +1,3 @@
-CREATE UNIQUE INDEX flows_name_unique
-  ON flows (name);
-
 CREATE TABLE api_idempotency (
   scope text NOT NULL CHECK (char_length(scope) BETWEEN 1 AND 128),
   idempotency_key text NOT NULL CHECK (char_length(idempotency_key) BETWEEN 1 AND 200),
