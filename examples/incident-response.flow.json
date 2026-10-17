@@ -1,29 +1,65 @@
 {
-  "name": "incident-response",
-  "description": "PR1 contract example; runtime execution arrives in later slices.",
+  "name": "incident-response-high-severity",
+  "description": "PR12 flagship high-severity incident path: validate, classify, approve, create issue, alert, summarize.",
   "stages": [
+    {
+      "id": "validate",
+      "type": "task",
+      "dependsOn": [],
+      "handler": "demo.validate-incident"
+    },
     {
       "id": "classify",
       "type": "agent",
-      "provider": "deterministic",
-      "instruction": "Classify incident severity.",
+      "dependsOn": ["validate"],
+      "provider": "demo.provider",
+      "instruction": "Classify the validated incident and return a structured severity.",
       "allowedTools": [],
-      "maxSteps": 1
+      "maxSteps": 1,
+      "outputSchema": {
+        "type": "object",
+        "required": ["severity"],
+        "properties": {
+          "severity": { "enum": ["high"] }
+        },
+        "additionalProperties": false
+      }
     },
     {
       "id": "approval",
       "type": "gate",
       "dependsOn": ["classify"],
-      "prompt": "Approve high-severity response?"
+      "prompt": "Approve high-severity incident escalation?"
     },
     {
-      "id": "notify",
+      "id": "create_issue",
       "type": "action",
       "dependsOn": ["approval"],
+      "connector": "github",
+      "operation": "create_issue",
+      "input": {
+        "repository": "example/incidents",
+        "title": "High-severity incident"
+      }
+    },
+    {
+      "id": "alert",
+      "type": "action",
+      "dependsOn": ["create_issue"],
       "connector": "slack",
       "operation": "send_message",
       "input": {
-        "channel": "ops"
+        "channel": "incidents",
+        "text": "Incident escalated and issue created"
+      }
+    },
+    {
+      "id": "summary",
+      "type": "transform",
+      "dependsOn": ["alert"],
+      "assign": {
+        "incident.status": "completed",
+        "incident.severity": "high"
       }
     }
   ]
