@@ -48,6 +48,6 @@
     "@types/pg": "8.23.1",
     "typescript": "5.8.3"
   },
-  "license": "UNLICENSED",
+  "license": "SEE LICENSE IN LICENSE",
   "packageManager": "npm@10.9.2"
 }
