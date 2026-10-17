@@ -7,6 +7,7 @@ for (const packageName of [
   "queue",
   "effects",
   "gates",
+  "connectors",
   "providers",
 ]) {
   await rm(new URL(`../packages/${packageName}/dist`, import.meta.url), {

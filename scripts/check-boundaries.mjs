@@ -3,127 +3,47 @@ import { join, relative } from "node:path";
 
 const root = new URL("../", import.meta.url).pathname;
 const failures = [];
-const packageRules = [
-  {
-    name: "@aegisflow/contracts",
-    sourceRoot: join(root, "packages", "contracts", "src"),
-    allows(specifier) {
-      return specifier.startsWith("./") || specifier.startsWith("../");
-    },
-  },
-  {
-    name: "@aegisflow/core",
-    sourceRoot: join(root, "packages", "core", "src"),
-    allows(specifier) {
-      return (
-        specifier.startsWith("./") ||
-        specifier.startsWith("../") ||
-        specifier === "@aegisflow/contracts"
-      );
-    },
-  },
-  {
-    name: "@aegisflow/persistence",
-    sourceRoot: join(root, "packages", "persistence", "src"),
-    allows(specifier) {
-      return (
-        specifier.startsWith("./") ||
-        specifier.startsWith("../") ||
-        specifier === "@aegisflow/contracts" ||
-        specifier === "pg" ||
-        specifier.startsWith("node:")
-      );
-    },
-  },
-  {
-    name: "@aegisflow/queue",
-    sourceRoot: join(root, "packages", "queue", "src"),
-    allows(specifier) {
-      return (
-        specifier.startsWith("./") ||
-        specifier.startsWith("../") ||
-        specifier === "@aegisflow/contracts" ||
-        specifier === "@aegisflow/core" ||
-        specifier === "@aegisflow/persistence" ||
-        specifier === "pg"
-      );
-    },
-  },
-  {
-    name: "@aegisflow/effects",
-    sourceRoot: join(root, "packages", "effects", "src"),
-    allows(specifier) {
-      return (
-        specifier.startsWith("./") ||
-        specifier.startsWith("../") ||
-        specifier === "@aegisflow/contracts" ||
-        specifier === "@aegisflow/core" ||
-        specifier === "@aegisflow/persistence" ||
-        specifier === "pg" ||
-        specifier.startsWith("node:")
-      );
-    },
-  },
-  {
-    name: "@aegisflow/gates",
-    sourceRoot: join(root, "packages", "gates", "src"),
-    allows(specifier) {
-      return (
-        specifier.startsWith("./") ||
-        specifier.startsWith("../") ||
-        specifier === "@aegisflow/contracts" ||
-        specifier === "@aegisflow/core" ||
-        specifier === "@aegisflow/persistence" ||
-        specifier === "pg" ||
-        specifier.startsWith("node:")
-      );
-    },
-  },
-  {
-    name: "@aegisflow/providers",
-    sourceRoot: join(root, "packages", "providers", "src"),
-    allows(specifier) {
-      return (
-        specifier.startsWith("./") ||
-        specifier.startsWith("../") ||
-        specifier === "@aegisflow/contracts" ||
-        specifier === "@aegisflow/effects" ||
-        specifier === "@aegisflow/queue" ||
-        specifier === "pg" ||
-        specifier.startsWith("node:")
-      );
-    },
-  },
+const rules = [
+  ["contracts", ["@aegisflow/contracts"]],
+  ["core", ["@aegisflow/contracts"]],
+  ["persistence", ["@aegisflow/contracts", "pg"]],
+  ["queue", ["@aegisflow/contracts", "@aegisflow/core", "@aegisflow/persistence", "pg"]],
+  ["effects", ["@aegisflow/contracts", "@aegisflow/core", "@aegisflow/persistence", "pg"]],
+  ["gates", ["@aegisflow/contracts", "@aegisflow/core", "@aegisflow/persistence", "pg"]],
+  ["connectors", ["@aegisflow/contracts", "@aegisflow/effects", "pg"]],
+  ["providers", ["@aegisflow/connectors", "@aegisflow/contracts", "@aegisflow/effects", "@aegisflow/queue", "pg"]],
 ];
 
 const importPattern = /(?:from\s+|import\s*)["']([^"']+)["']/g;
 
-async function walk(rule, directory) {
+async function walk(packageName, allowed, directory) {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const path = join(directory, entry.name);
     if (entry.isDirectory()) {
-      await walk(rule, path);
+      await walk(packageName, allowed, path);
       continue;
     }
     if (!entry.name.endsWith(".ts")) continue;
     const text = await readFile(path, "utf8");
     for (const match of text.matchAll(importPattern)) {
       const specifier = match[1];
-      if (specifier !== undefined && !rule.allows(specifier)) {
-        failures.push(`${relative(root, path)} imports forbidden module '${specifier}'`);
-      }
+      const okay = specifier !== undefined && (
+        specifier.startsWith("./") ||
+        specifier.startsWith("../") ||
+        specifier.startsWith("node:") ||
+        allowed.includes(specifier)
+      );
+      if (!okay) failures.push(`${relative(root, path)} imports forbidden module '${specifier}'`);
     }
   }
 }
 
-for (const rule of packageRules) {
-  await walk(rule, rule.sourceRoot);
+for (const [packageName, allowed] of rules) {
+  await walk(packageName, allowed, join(root, "packages", packageName, "src"));
 }
 
 if (failures.length > 0) {
   console.error("architecture boundary violation:\n" + failures.join("\n"));
   process.exit(1);
 }
-console.log(
-  "boundaries: contracts isolated; core -> contracts; persistence -> contracts + PostgreSQL; queue/effects/gates -> contracts + core + persistence + PostgreSQL; providers -> contracts + queue + effects + PostgreSQL",
-);
+console.log("boundaries: contracts isolated; durable core/persistence layers constrained; connectors -> contracts + effects + PostgreSQL; providers -> connectors + queue + effects");
