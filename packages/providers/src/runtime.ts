@@ -12,14 +12,15 @@ import {
   type StageExecutionId,
 } from "@aegisflow/contracts";
 import {
+  completeSucceededEffectInTransaction,
   EffectLedgerError,
   PostgresEffectLedger,
   type DurableEffectRecord,
   type EffectClaimResult,
 } from "@aegisflow/effects";
-import { PostgresWorkerQueue, QueueError, type ClaimAcquisition } from "@aegisflow/queue";
+import { PostgresWorkerQueue, type ClaimAcquisition } from "@aegisflow/queue";
 import { createHash } from "node:crypto";
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import { AgentRuntimeError } from "./errors.js";
 import {
   normalizeProviderResponse,
@@ -261,17 +262,20 @@ export class PostgresAgentRuntime {
     }
   }
 
-  private async persistProviderResult(input: {
-    readonly effectId: EffectId;
-    readonly stageExecutionId: StageExecutionId;
-    readonly step: number;
-    readonly provider: string;
-    readonly response: ProviderResponse;
-  }): Promise<DurableProviderResult> {
+  private async persistProviderResult(
+    client: PoolClient,
+    input: {
+      readonly effectId: EffectId;
+      readonly stageExecutionId: StageExecutionId;
+      readonly step: number;
+      readonly provider: string;
+      readonly response: ProviderResponse;
+    },
+  ): Promise<DurableProviderResult> {
     const responseJson = toProviderResponseJson(input.response);
     const reference = input.response.providerReference ?? null;
     try {
-      const inserted = await this.pool.query<ProviderResultRow>(
+      const inserted = await client.query<ProviderResultRow>(
         `INSERT INTO agent_provider_results (
            effect_id, stage_execution_id, step, provider, response, provider_reference
          )
@@ -290,13 +294,20 @@ export class PostgresAgentRuntime {
       const insertedRow = inserted.rows[0];
       if (insertedRow !== undefined) return mapProviderResult(insertedRow);
 
-      const existing = await this.getProviderResult(input.effectId);
-      if (existing === null) {
+      const existingResult = await client.query<ProviderResultRow>(
+        `SELECT effect_id, stage_execution_id, step, provider, response, provider_reference, created_at
+         FROM agent_provider_results
+         WHERE effect_id = $1`,
+        [input.effectId],
+      );
+      const existingRow = existingResult.rows[0];
+      if (existingRow === undefined) {
         throw new AgentRuntimeError(
           "INTEGRITY",
           "Provider result conflict completed without a durable result row.",
         );
       }
+      const existing = mapProviderResult(existingRow);
       if (
         existing.stageExecutionId !== input.stageExecutionId ||
         existing.step !== input.step ||
@@ -331,6 +342,77 @@ export class PostgresAgentRuntime {
       });
     } catch {
       // The primary failure remains authoritative. A lost/expired Claim is already fenced by PR4.
+    }
+  }
+
+  private async quarantineProviderEffect(
+    effectId: EffectId,
+    resolutionCode: string,
+    externalReference?: string,
+  ): Promise<void> {
+    try {
+      const snapshot = await this.effects.getEffect(effectId);
+      if (snapshot?.effect.state !== "CLAIMED") return;
+      await this.effects.completeEffect(effectId, {
+        outcome: "AMBIGUOUS",
+        resolutionCode,
+        ...(externalReference === undefined ? {} : { externalReference }),
+      });
+    } catch {
+      // A concurrent recovery/cancellation may already have terminalized the Effect.
+    }
+  }
+
+  private async persistProviderResultAndCloseEffect(input: {
+    readonly effectId: EffectId;
+    readonly stageExecutionId: StageExecutionId;
+    readonly step: number;
+    readonly provider: string;
+    readonly response: ProviderResponse;
+  }): Promise<{ readonly effect: DurableEffectRecord; readonly providerResult: DurableProviderResult }> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const providerResult = await this.persistProviderResult(client, input);
+      const effect = await completeSucceededEffectInTransaction(client, input.effectId, {
+        resolutionCode: "provider_response_persisted",
+        ...(providerResult.providerReference === null
+          ? {}
+          : { externalReference: providerResult.providerReference }),
+      });
+      await client.query("COMMIT");
+      return Object.freeze({ effect, providerResult });
+    } catch (error) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {
+        // Preserve the primary transaction failure.
+      }
+
+      try {
+        const [snapshot, durable] = await Promise.all([
+          this.effects.getEffect(input.effectId),
+          this.getProviderResult(input.effectId),
+        ]);
+        if (snapshot?.effect.state === "SUCCEEDED" && durable !== null) {
+          return Object.freeze({ effect: snapshot.effect, providerResult: durable });
+        }
+      } catch {
+        // Fall through to quarantine.
+      }
+
+      await this.quarantineProviderEffect(
+        input.effectId,
+        "provider_local_commit_failed",
+        input.response.providerReference,
+      );
+      throw new AgentRuntimeError(
+        "TRANSACTION",
+        "Provider response could not be atomically persisted and closed.",
+        { cause: error },
+      );
+    } finally {
+      client.release();
     }
   }
 
@@ -593,24 +675,18 @@ export class PostgresAgentRuntime {
 
     let durable: DurableProviderResult;
     try {
-      durable = await this.persistProviderResult({
+      const closed = await this.persistProviderResultAndCloseEffect({
         effectId: identity.effectId,
         stageExecutionId,
         step,
         provider: context.stage.provider,
         response: normalized,
       });
-      planned = (
-        await this.effects.completeEffect(identity.effectId, {
-          outcome: "SUCCEEDED",
-          resolutionCode: "provider_response_persisted",
-          ...(durable.providerReference === null
-            ? {}
-            : { externalReference: durable.providerReference }),
-        })
-      ).effect;
+      durable = closed.providerResult;
+      planned = closed.effect;
     } catch (error) {
       await this.failClaim(acquisition, input);
+      if (error instanceof AgentRuntimeError) throw error;
       throw new AgentRuntimeError(
         "TRANSACTION",
         "Provider response could not be durably closed before Stage completion.",
