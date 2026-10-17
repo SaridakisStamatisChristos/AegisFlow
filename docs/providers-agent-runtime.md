@@ -1,25 +1,21 @@
 # Provider abstraction and Agent Stage runtime
 
-PR7 adds a vendor-neutral provider boundary and the first durable Agent Stage execution path.
-It deliberately does not add provider-specific SDKs, API keys, connectors, a generic tool executor,
-Control API/SDK/CLI, UI, or authentication/RBAC.
+`@aegisflow/providers` defines a vendor-neutral model-provider boundary and durable Agent Stage execution semantics.
 
 ## Provider contract
 
-`ModelProvider` exposes a stable provider `id` and one asynchronous `generate()` method. A
-`ProviderRegistry` rejects duplicate identities and fails closed when an Agent Stage names an
-unregistered provider. Provider responses are normalized into exactly one of two shapes:
+`ModelProvider` exposes a stable provider `id` and asynchronous `generate()` method. `ProviderRegistry` rejects duplicate identities and fails closed when a Stage names an unregistered provider.
 
-- `final`: one JSON-compatible output plus optional provider reference/usage;
+Provider responses normalize to exactly one of two shapes:
+
+- `final`: JSON-compatible output plus optional provider reference/usage;
 - `tool_calls`: one or more bounded tool requests plus optional provider reference/usage.
 
-Malformed responses, duplicate tool-call IDs, non-JSON values, unsafe numeric values, and invalid
-symbolic names are rejected deterministically.
+Malformed responses, duplicate tool-call IDs, non-JSON values, unsafe numeric values, and invalid symbolic names are rejected deterministically.
 
-## Agent Stage authority chain
+## Agent authority chain
 
-The Agent Stage definition is loaded from the Execution's pinned immutable Flow Version. The caller
-cannot substitute provider, instruction, tool allow-list, step budget, or output schema.
+The Agent Stage definition is loaded from the Execution's pinned immutable Flow Version. The caller cannot substitute provider, instruction, tool allow-list, step budget, or output schema.
 
 ```text
 pinned Flow Version
@@ -28,70 +24,44 @@ pinned Flow Version
 Agent Stage definition
        |
        v
-PR4 worker Claim authority
+worker Claim authority
        |
        v
-PR5 Effect plan + claim authority
+provider Effect authority
        |
        v
 ModelProvider.generate()
        |
        v
-immutable agent_provider_results row
-       |
-       v
-Effect SUCCEEDED
+immutable provider result
        |
        v
 output/tool validation
        |
        v
-Stage SUCCEEDED or fail-closed
+Stage completion
 ```
 
-Provider invocation is therefore treated as an external Effect, not as an untracked LLM call.
-The stable Effect identity is derived from `StageExecution + provider step`.
+Provider invocation is an external Effect, not an untracked model call. The stable provider Effect identity is derived from `StageExecution + provider step`.
 
 ## Crash and ambiguity semantics
 
-A normalized provider result is persisted before the Effect is closed as `SUCCEEDED`.
-On worker recovery:
+Provider-result evidence and successful Effect closure commit in one PostgreSQL transaction. During recovery:
 
-- a claimed provider Effect with a matching durable result is closed/reused without calling the
-  provider again;
-- a claimed provider Effect without a durable result is treated as an unknown external outcome and
-  moved to `RECONCILIATION_REQUIRED` rather than blindly replayed;
-- if worker authority expires while the provider call is in flight, the provider Effect is
-  quarantined as ambiguous;
-- known provider failures become terminal failed Effects; unknown transport/provider exceptions
-  become reconciliation-required Effects.
+- durable provider evidence is reused without calling the provider again;
+- an unresolved claimed provider Effect is treated as an unknown external outcome;
+- lost worker authority after a provider response quarantines the Effect;
+- known provider failures become failed Effects;
+- unknown transport/provider outcomes become reconciliation-required Effects.
 
-These rules do not claim generic exactly-once model execution. They guarantee fail-closed replay
-semantics within the declared AegisFlow runtime boundary.
-
-## Durable provider evidence
-
-Migration `0005_agent_provider_results` stores one immutable result per Effect and one result per
-`StageExecution + step`. PostgreSQL verifies that the result's StageExecution owns the referenced
-Effect, and rejects UPDATE/DELETE of provider-result evidence.
+These rules do not claim generic exactly-once model execution.
 
 ## Output schemas
 
-PR7 implements a deliberately small deterministic JSON-schema-like subset: `type`, `properties`,
-`required`, `additionalProperties`, `items`, `enum`, `const`, string/number/array bounds, and
-metadata keywords. Unsupported keywords fail closed instead of being silently ignored.
+The runtime supports a bounded deterministic JSON-schema-like subset including `type`, `properties`, `required`, `additionalProperties`, `items`, `enum`, `const`, common bounds, and metadata keywords. Unsupported keywords fail closed.
 
-A provider call that succeeds externally but returns output that does not satisfy the pinned schema
-remains durable successful external evidence while the Stage itself fails.
+A provider may succeed externally while returning output that fails the pinned schema; the external result remains durable evidence while the Stage fails.
 
-## Tool boundary
+## Tool execution
 
-Provider tool requests are normalized and checked against the Agent Stage's immutable allow-list.
-PR7 does not execute tools. Allowed tool requests fail with `TOOL_EXECUTION_UNAVAILABLE`; requests
-outside the allow-list fail with `TOOL_NOT_ALLOWED`. Connector/tool execution begins in PR8.
-
-## Current bounded execution model
-
-PR7 executes provider step 1 only. Multi-step provider/tool loops require PR8 connector execution
-and are intentionally not simulated in this slice, even though the public Agent contract already
-contains a bounded `maxSteps` field.
+Tool requests are normalized and validated against the Agent Stage's immutable allow-list and connector registry before any external action begins. Multi-step provider → tool → provider execution is bounded by `maxSteps`, and every external tool call runs through the Effect ledger.

@@ -29,19 +29,12 @@
     "typecheck": "npm run build:contracts --silent && npm run build:core --silent && npm run build:persistence --silent && npm run build:queue --silent && npm run build:effects --silent && npm run build:gates --silent && npm run build:flows --silent && npm run build:connectors --silent && tsc -p packages/providers/tsconfig.json --noEmit --pretty false && npm run build:sdk --silent && tsc -p packages/api/tsconfig.json --noEmit --pretty false && tsc -p packages/cli/tsconfig.json --noEmit --pretty false && tsc -p packages/console/tsconfig.json --noEmit --pretty false",
     "test": "npm run build --silent && node --test packages/contracts/test/*.test.mjs packages/core/test/*.test.mjs packages/connectors/test/connectors.test.mjs packages/providers/test/provider.test.mjs packages/sdk/test/*.test.mjs packages/cli/test/*.test.mjs packages/console/test/*.test.mjs",
     "test:postgres": "npm run build --silent && node scripts/test-postgres.mjs",
-    "demo:pr12": "npm run build --silent && node benchmarks/pr12-demo.mjs",
+    "demo:deterministic": "npm run build --silent && node benchmarks/deterministic-demo.mjs",
     "boundaries": "node scripts/check-boundaries.mjs",
     "secret:scan": "node scripts/check-secrets.mjs",
-    "manifest:pr5": "node scripts/hash-pr5-artifacts.mjs",
-    "manifest:pr6": "node scripts/hash-pr6-artifacts.mjs",
-    "manifest:pr7": "node scripts/hash-pr7-artifacts.mjs",
-    "manifest:pr8": "node scripts/hash-pr8-artifacts.mjs",
-    "manifest:pr9": "node scripts/hash-pr9-artifacts.mjs",
-    "manifest:pr10": "node scripts/hash-pr10-artifacts.mjs",
-    "manifest:pr11": "node scripts/hash-pr11-artifacts.mjs",
-    "manifest:pr12": "node scripts/hash-pr12-artifacts.mjs",
+    "manifest:verification": "node scripts/hash-verification-artifacts.mjs",
     "manifest:deps": "node scripts/hash-dependency-lock.mjs",
-    "verify": "npm run lint && npm run typecheck && npm test && npm run boundaries && npm run secret:scan && npm run manifest:pr12 && npm run manifest:deps"
+    "verify": "npm run lint && npm run typecheck && npm test && npm run boundaries && npm run secret:scan && npm run manifest:verification && npm run manifest:deps"
   },
   "devDependencies": {
     "@types/node": "22.20.5",

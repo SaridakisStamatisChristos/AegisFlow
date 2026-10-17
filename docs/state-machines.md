@@ -1,9 +1,6 @@
 # State-machine specification
 
-PR2 implements these rules as pure deterministic functions in `@aegisflow/core`.
-A transition consumes only its current state and an explicit event. It performs no
-I/O, reads no clock, draws no randomness, and mutates no caller-owned object.
-Invalid transitions fail closed with a typed runtime error.
+The state machines in `@aegisflow/core` are pure deterministic functions. A transition consumes only current state and an explicit event. It performs no I/O, reads no clock, draws no randomness, and mutates no caller-owned object. Invalid transitions fail closed with typed runtime errors.
 
 ## Execution
 
@@ -21,14 +18,11 @@ States: `PENDING`, `RUNNING`, `WAITING`, `SUCCEEDED`, `FAILED`, `CANCELLED`.
 | `WAITING` | `FAIL` | `FAILED` |
 | `WAITING` | `CANCEL` | `CANCELLED` |
 
-`SUCCEEDED`, `FAILED`, and `CANCELLED` are terminal. Cancellation is monotonic.
-`WAITING` means durable external progress is required; it is not a worker-liveness
-state. Persistence of that wait begins in PR3.
+`SUCCEEDED`, `FAILED`, and `CANCELLED` are terminal. Cancellation is monotonic. `WAITING` represents durable external progress, not worker liveness.
 
 ## Stage execution
 
-States: `BLOCKED`, `READY`, `RUNNING`, `WAITING`, `SUCCEEDED`, `FAILED`, `SKIPPED`,
-`CANCELLED`.
+States: `BLOCKED`, `READY`, `RUNNING`, `WAITING`, `SUCCEEDED`, `FAILED`, `SKIPPED`, `CANCELLED`.
 
 | From | Event | To |
 | --- | --- | --- |
@@ -46,9 +40,7 @@ States: `BLOCKED`, `READY`, `RUNNING`, `WAITING`, `SUCCEEDED`, `FAILED`, `SKIPPE
 | `WAITING` | `FAIL` | `FAILED` |
 | `WAITING` | `CANCEL` | `CANCELLED` |
 
-`SUCCEEDED`, `FAILED`, `SKIPPED`, and `CANCELLED` are terminal. A Stage can be
-skipped only before work starts. Dependency satisfaction and propagation of
-ready/skipped states across the Flow graph belong to the later `flows` package.
+`SUCCEEDED`, `FAILED`, `SKIPPED`, and `CANCELLED` are terminal. A Stage can be skipped only before work starts. Dependency propagation belongs to `@aegisflow/flows`.
 
 ## Attempt
 
@@ -64,33 +56,20 @@ States: `CLAIMED`, `RUNNING`, `SUCCEEDED`, `FAILED`, `TIMED_OUT`, `CANCELLED`.
 | `RUNNING` | `TIMEOUT` | `TIMED_OUT` |
 | `RUNNING` | `CANCEL` | `CANCELLED` |
 
-All other states are terminal. Retry never reopens an Attempt. `nextAttemptSequence`
-allocates a new positive safe-integer sequence, so prior attempts remain immutable
-history. Lease generations and stale-worker fencing remain PR4 scope.
+Terminal Attempts are never reopened. Retry allocates a new Attempt sequence so prior attempts remain immutable history. Worker leases and fencing are handled by `@aegisflow/queue`.
 
 ## Gate
 
 States: `WAITING`, `APPROVED`, `REJECTED`, `EXPIRED`.
 
-`APPROVE`, `REJECT`, and `EXPIRE` resolve a waiting Gate. Repeating the identical
-decision against its already-resolved state is idempotent (`changed: false`). A
-conflicting later decision fails with `GATE_DECISION_CONFLICT`. All resolved Gate
-states are terminal. Durable Gate records remain PR6 scope.
+`APPROVE`, `REJECT`, and `EXPIRE` resolve a waiting Gate. Repeating the identical terminal decision is idempotent; a conflicting later decision fails with `GATE_DECISION_CONFLICT`. Durable Gate authority is handled by `@aegisflow/gates`.
 
 ## Effect
 
 States: `PLANNED`, `CLAIMED`, `SUCCEEDED`, `FAILED`, `RECONCILIATION_REQUIRED`.
 
-`PLANNED --CLAIM--> CLAIMED`. From `CLAIMED`, an Effect can `SUCCEED`, `FAIL`, or
-`REQUIRE_RECONCILIATION`. All three outcomes are terminal in the PR2 pure machine.
-In particular, `RECONCILIATION_REQUIRED` has no automatic transition back to
-`CLAIMED`; this encodes the no-blind-replay invariant. Durable idempotency keys,
-reconciliation attempts, and external execution belong to PR5.
+`PLANNED --CLAIM--> CLAIMED`. From `CLAIMED`, an Effect can `SUCCEED`, `FAIL`, or `REQUIRE_RECONCILIATION`. All three outcomes are terminal in the pure machine. `RECONCILIATION_REQUIRED` has no automatic transition back to `CLAIMED`; this is the no-blind-replay invariant. Durable Effect identity and reconciliation are handled by `@aegisflow/effects`.
 
 ## Decision branch resolution
 
-PR2 does not introduce an expression language. Given a declared unique choice list
-and one selected choice, `resolveDecisionBranch` deterministically returns that
-choice plus the sibling choices to skip, preserving declaration order. It performs
-no graph mutation. Graph reachability and dependency propagation remain later
-`flows` responsibilities.
+`resolveDecisionBranch` accepts a declared unique choice list and one selected choice, then deterministically returns the selected branch and siblings to skip while preserving declaration order. It performs no graph mutation; graph reachability and dependency propagation remain `@aegisflow/flows` responsibilities.
