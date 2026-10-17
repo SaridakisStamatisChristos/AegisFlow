@@ -1,6 +1,6 @@
 {
   "name": "incident-response-high-severity",
-  "description": "PR12 flagship high-severity incident path: validate, classify, approve, create issue, alert, summarize.",
+  "description": "Flagship high-severity incident path: validate, classify, approve, create issue, alert, summarize.",
   "stages": [
     {
       "id": "validate",
