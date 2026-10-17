@@ -32,8 +32,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Install toolchain
-        run: npm install --ignore-scripts
+      - name: Pin npm toolchain
+        run: |
+          npm install --global npm@10.9.2
+          test "$(npm --version)" = "10.9.2"
+      - name: Install from committed lockfile
+        run: npm ci --ignore-scripts
+      - name: Verify install did not mutate dependency declarations
+        run: git diff --exit-code -- package-lock.json package.json packages/*/package.json
       - name: Verify source and package boundaries
         run: npm run verify
       - name: Verify PostgreSQL migrations and repositories
