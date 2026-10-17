@@ -17,11 +17,11 @@ Scope: roadmap PR8 only — governed HTTP/GitHub/Slack connectors and durable Ag
 | R8-11 | Recovered in-flight tool Effect without durable evidence is quarantined and never blindly replayed. | orphaned-tool recovery test | VERIFIED |
 | R8-12 | Provider tool calls are checked against the immutable Agent allow-list and connector registry before the first tool side effect in that provider turn. | PR8 Agent preflight tests | VERIFIED |
 | R8-13 | Tool results are fed back into a bounded provider loop; immutable maxSteps stops further side effects. | provider→tool→provider and maxSteps tests | VERIFIED |
-| R8-14 | Worker Claim fencing remains authoritative around provider/tool execution; a stale worker cannot complete the Stage. | PR4 regressions + PR8 fencing failure injection | PARTIAL — targeted fencing run pending |
+| R8-14 | Worker Claim fencing remains authoritative around provider/tool execution; a stale worker cannot complete the Stage. | PR4 regressions + PR8 post-provider authority-loss injection, run 38985616233/job 117256272953 | VERIFIED |
 | R8-15 | Two-argument Agent runtime construction preserves PR7 fail-closed tool behavior. | selected PR7 runtime regression lane | VERIFIED |
 | R8-16 | Migration chain 0001→0006 applies, rolls back, and reapplies while PR3–PR7 runtime regressions remain green. | canonical migration + hosted PostgreSQL lanes | VERIFIED |
 | R8-17 | Strict TypeScript, source-only test routing, package boundaries, secret scan, PostgreSQL verification, and dependency audit pass. | hosted CI | VERIFIED |
 | R8-18 | Declared PR8 executable/config/test artifacts have SHA-256 closure and the exact final branch head passes hosted verification. | PR8 manifest + final-head CI | PARTIAL — packaging/final-head gate pending |
 | R8-19 | Direct general ActionStage scheduling, external exactly-once guarantees, automatic reconciliation, API/SDK/CLI/UI/RBAC, HA/backup, production readiness, and SOTA claims are excluded. | scope docs + PR body | N/A — outside declared PR8 slice |
 
-PR8 is merge-ready only when R8-14 and R8-18 are VERIFIED on the final candidate lineage.
+PR8 is merge-ready only when R8-18 is VERIFIED on the exact final branch head.
