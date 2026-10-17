@@ -27,6 +27,7 @@ const effects = new PostgresEffectLedger(pool);
 async function dropSchema() {
   await pool.query(`
     DROP TABLE IF EXISTS agent_tool_results, agent_provider_results, gate_resolutions, gate_protections, gates, effect_reconciliations, effects, claims, execution_events, attempts, stage_executions, executions, flow_versions, flows CASCADE;
+    DROP FUNCTION IF EXISTS aegisflow_quarantine_claimed_effects_on_stage_cancel();
     DROP FUNCTION IF EXISTS aegisflow_reject_agent_tool_result_mutation();
     DROP FUNCTION IF EXISTS aegisflow_validate_agent_tool_result();
     DROP FUNCTION IF EXISTS aegisflow_reject_agent_provider_result_mutation();
@@ -82,13 +83,14 @@ test("PR8 migration 0006 rolls back and reapplies without removing PR7 provider 
   await dropSchema();
   assert.deepEqual(await migrateUp(pool), [
     "0001_initial", "0002_worker_claims", "0003_effect_ledger", "0004_durable_gates",
-    "0005_agent_provider_results", "0006_agent_tool_results",
+    "0005_agent_provider_results", "0006_agent_tool_results", "0008_cancel_claimed_effects",
   ]);
   assert.notEqual((await pool.query("SELECT to_regclass('public.agent_tool_results') AS t")).rows[0].t, null);
+  assert.equal(await rollbackLastMigration(pool), "0008_cancel_claimed_effects");
   assert.equal(await rollbackLastMigration(pool), "0006_agent_tool_results");
   assert.equal((await pool.query("SELECT to_regclass('public.agent_tool_results') AS t")).rows[0].t, null);
   assert.notEqual((await pool.query("SELECT to_regclass('public.agent_provider_results') AS t")).rows[0].t, null);
-  assert.deepEqual(await migrateUp(pool), ["0006_agent_tool_results"]);
+  assert.deepEqual(await migrateUp(pool), ["0006_agent_tool_results", "0008_cancel_claimed_effects"]);
 });
 
 test("tool execution persists immutable evidence before Effect success and suppresses replay", async () => {
