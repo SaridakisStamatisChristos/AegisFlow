@@ -15,6 +15,7 @@ const artifacts = [
   "packages/contracts/package.json",
   "packages/core/package.json",
   "packages/effects/package.json",
+  "packages/flows/package.json",
   "packages/gates/package.json",
   "packages/persistence/package.json",
   "packages/providers/package.json",
