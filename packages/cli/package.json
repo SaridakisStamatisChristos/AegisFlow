@@ -1,0 +1,22 @@
+{
+  "name": "@aegisflow/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "aegisflow": "./dist/bin.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@aegisflow/contracts": "0.1.0",
+    "@aegisflow/sdk": "0.1.0"
+  }
+}
