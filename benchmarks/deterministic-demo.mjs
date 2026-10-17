@@ -24,7 +24,7 @@ import { createControlServer, PostgresControlService } from "@aegisflow/api";
 import { Pool } from "pg";
 
 const databaseUrl = process.env.DATABASE_URL;
-if (!databaseUrl) throw new Error("DATABASE_URL is required for the PR12 demo suite.");
+if (!databaseUrl) throw new Error("DATABASE_URL is required for the deterministic demo suite.");
 
 const pool = new Pool({ connectionString: databaseUrl, max: 24 });
 const service = new PostgresControlService(pool);
@@ -147,7 +147,7 @@ const scenarios = [
       const started = await client.startExecution({
         flowId: registered.flow.id,
         flowVersionId: registered.version.id,
-        idempotencyKey: "pr12-flagship-start",
+        idempotencyKey: "demo-flagship-start",
       });
       assert.equal(started.stages.length, definition.stages.length);
       assert.equal(stageById(started, "validate").state, "READY");
@@ -160,13 +160,13 @@ const scenarios = [
     title: "Deterministic Flow executes through API, worker queue, and durable state",
     run: async () => {
       const { started, stage } = await startSingleStageFlow(
-        "pr12-deterministic",
+        "demo-deterministic",
         { id: "validate", type: "task", dependsOn: [], handler: "demo.validate" },
-        "pr12-deterministic-start",
+        "demo-deterministic-start",
       );
       const claim = await queue.claimStage({
         stageExecutionId: stage.id,
-        attemptId: parseAttemptId("attempt_pr12det01"),
+        attemptId: parseAttemptId("attempt_demodet01"),
         ownerId: "demo-worker",
         leaseMs: 60_000,
       });
@@ -191,7 +191,7 @@ const scenarios = [
     title: "Agent reasoning uses deterministic provider and durable provider Effect evidence",
     run: async () => {
       const { started, stage } = await startSingleStageFlow(
-        "pr12-agent",
+        "demo-agent",
         {
           id: "classify",
           type: "agent",
@@ -207,7 +207,7 @@ const scenarios = [
             additionalProperties: false,
           },
         },
-        "pr12-agent-start",
+        "demo-agent-start",
       );
       let calls = 0;
       const runtime = new PostgresAgentRuntime(
@@ -219,7 +219,7 @@ const scenarios = [
       );
       const result = await runtime.runAgentStage({
         stageExecutionId: stage.id,
-        attemptId: parseAttemptId("attempt_pr12agent1"),
+        attemptId: parseAttemptId("attempt_demoagent1"),
         ownerId: "agent-worker",
         leaseMs: 60_000,
       });
@@ -236,15 +236,15 @@ const scenarios = [
     title: "Human Gate is durable, evidence-bearing, and duplicate approval is deterministic",
     run: async () => {
       const registered = await client.registerFlow({
-        name: "pr12-gate",
+        name: "demo-gate",
         stages: [
           { id: "approval", type: "gate", dependsOn: [], prompt: "Approve incident escalation?" },
           { id: "after", type: "task", dependsOn: ["approval"], handler: "demo.after-gate" },
         ],
       });
-      const started = await client.startExecution({ flowId: registered.flow.id, idempotencyKey: "pr12-gate-start" });
+      const started = await client.startExecution({ flowId: registered.flow.id, idempotencyKey: "demo-gate-start" });
       const gateStage = stageById(started, "approval");
-      const gateId = parseGateId("gate_pr12gate01");
+      const gateId = parseGateId("gate_demogate01");
       const created = await service.gates.createGate({
         id: gateId,
         executionId: started.execution.id,
@@ -252,13 +252,13 @@ const scenarios = [
       });
       assert.equal(created.snapshot.gate.state, "WAITING");
       assert.equal((await service.gates.getStageGateAuthorization(stageById(started, "after").id)).allowed, false);
-      const approved = await client.approveGate({ gateId, actorId: "operator-pr12", evidence: { ticket: "INC-42" } });
+      const approved = await client.approveGate({ gateId, actorId: "operator-demo", evidence: { ticket: "INC-42" } });
       assert.equal(approved.changed, true);
       assert.equal(approved.snapshot.gate.state, "APPROVED");
       assert.equal((await service.gates.getStageGateAuthorization(stageById(started, "after").id)).allowed, true);
       const duplicate = await client.approveGate({ gateId, actorId: "operator-other", evidence: { overwrite: true } });
       assert.equal(duplicate.changed, false);
-      assert.equal(duplicate.snapshot.resolution.actorId, "operator-pr12");
+      assert.equal(duplicate.snapshot.resolution.actorId, "operator-demo");
       assert.deepEqual(duplicate.snapshot.resolution.evidence, { ticket: "INC-42" });
       return { firstDecisionChanged: true, duplicateDecisionChanged: false, finalGateState: "APPROVED" };
     },
@@ -268,7 +268,7 @@ const scenarios = [
     title: "External connector Effect succeeds once and durable replay suppresses duplicate action",
     run: async () => {
       const { started, stage } = await startSingleStageFlow(
-        "pr12-effect",
+        "demo-effect",
         {
           id: "agent_action",
           type: "agent",
@@ -278,11 +278,11 @@ const scenarios = [
           allowedTools: ["demo.github.create_issue"],
           maxSteps: 1,
         },
-        "pr12-effect-start",
+        "demo-effect-start",
       );
       const claim = await queue.claimStage({
         stageExecutionId: stage.id,
-        attemptId: parseAttemptId("attempt_pr12effect1"),
+        attemptId: parseAttemptId("attempt_demoeffect1"),
         ownerId: "effect-worker",
         leaseMs: 60_000,
       });
@@ -323,13 +323,13 @@ const scenarios = [
     title: "Transient lease timeout becomes a new Attempt and succeeds on retry",
     run: async () => {
       const { stage } = await startSingleStageFlow(
-        "pr12-transient-retry",
+        "demo-transient-retry",
         { id: "work", type: "task", dependsOn: [], handler: "demo.transient" },
-        "pr12-transient-start",
+        "demo-transient-start",
       );
       const first = await queue.claimStage({
         stageExecutionId: stage.id,
-        attemptId: parseAttemptId("attempt_pr12retry1"),
+        attemptId: parseAttemptId("attempt_demoretry1"),
         ownerId: "transient-worker-1",
         leaseMs: 60_000,
       });
@@ -337,7 +337,7 @@ const scenarios = [
       await forceClaimExpired(first.attempt.id);
       const second = await queue.claimStage({
         stageExecutionId: stage.id,
-        attemptId: parseAttemptId("attempt_pr12retry2"),
+        attemptId: parseAttemptId("attempt_demoretry2"),
         ownerId: "transient-worker-2",
         leaseMs: 60_000,
       });
@@ -362,12 +362,12 @@ const scenarios = [
     title: "Actual killed worker process is recovered after lease expiry",
     run: async () => {
       const { stage } = await startSingleStageFlow(
-        "pr12-process-crash",
+        "demo-process-crash",
         { id: "work", type: "task", dependsOn: [], handler: "demo.crash" },
-        "pr12-crash-start",
+        "demo-crash-start",
       );
       const childPath = fileURLToPath(new URL("./worker-crash-child.mjs", import.meta.url));
-      const child = spawn(process.execPath, [childPath, stage.id, "attempt_pr12crash1", "250"], {
+      const child = spawn(process.execPath, [childPath, stage.id, "attempt_democrash1", "250"], {
         env: process.env,
         stdio: ["ignore", "pipe", "pipe"],
       });
@@ -380,7 +380,7 @@ const scenarios = [
         await sleep(650);
         const recovered = await queue.claimStage({
           stageExecutionId: stage.id,
-          attemptId: parseAttemptId("attempt_pr12crash2"),
+          attemptId: parseAttemptId("attempt_democrash2"),
           ownerId: "recovery-worker",
           leaseMs: 60_000,
         });
@@ -405,13 +405,13 @@ const scenarios = [
     title: "Stale worker cannot complete after a newer generation owns the Stage",
     run: async () => {
       const { stage } = await startSingleStageFlow(
-        "pr12-fencing",
+        "demo-fencing",
         { id: "work", type: "task", dependsOn: [], handler: "demo.fencing" },
-        "pr12-fencing-start",
+        "demo-fencing-start",
       );
       const first = await queue.claimStage({
         stageExecutionId: stage.id,
-        attemptId: parseAttemptId("attempt_pr12fence1"),
+        attemptId: parseAttemptId("attempt_demofence1"),
         ownerId: "stale-worker",
         leaseMs: 60_000,
       });
@@ -419,7 +419,7 @@ const scenarios = [
       await forceClaimExpired(first.attempt.id);
       const second = await queue.claimStage({
         stageExecutionId: stage.id,
-        attemptId: parseAttemptId("attempt_pr12fence2"),
+        attemptId: parseAttemptId("attempt_demofence2"),
         ownerId: "fresh-worker",
         leaseMs: 60_000,
       });
@@ -449,14 +449,14 @@ const scenarios = [
     title: "Durable signal resumes a waiting Signal Stage and duplicate delivery is idempotent",
     run: async () => {
       const { started } = await startSingleStageFlow(
-        "pr12-signal",
+        "demo-signal",
         { id: "await_release", type: "signal", dependsOn: [], signalName: "release" },
-        "pr12-signal-start",
+        "demo-signal-start",
       );
       const first = await client.sendSignal({
         executionId: started.execution.id,
         signalName: "release",
-        idempotencyKey: "pr12-release-1",
+        idempotencyKey: "demo-release-1",
         payload: { ticket: "INC-42" },
       });
       assert.equal(first.replayed, false);
@@ -464,7 +464,7 @@ const scenarios = [
       const replay = await client.sendSignal({
         executionId: started.execution.id,
         signalName: "release",
-        idempotencyKey: "pr12-release-1",
+        idempotencyKey: "demo-release-1",
         payload: { ticket: "INC-42" },
       });
       assert.equal(replay.replayed, true);
@@ -478,7 +478,7 @@ const scenarios = [
     title: "Ambiguous side effect is quarantined and requires explicit reconciliation",
     run: async () => {
       const { started, stage } = await startSingleStageFlow(
-        "pr12-ambiguous-effect",
+        "demo-ambiguous-effect",
         {
           id: "agent_action",
           type: "agent",
@@ -488,11 +488,11 @@ const scenarios = [
           allowedTools: ["demo.slack.send_message"],
           maxSteps: 1,
         },
-        "pr12-ambiguous-start",
+        "demo-ambiguous-start",
       );
       const claim = await queue.claimStage({
         stageExecutionId: stage.id,
-        attemptId: parseAttemptId("attempt_pr12ambig1"),
+        attemptId: parseAttemptId("attempt_demoambig1"),
         ownerId: "ambiguous-worker",
         leaseMs: 60_000,
       });
@@ -527,7 +527,7 @@ const scenarios = [
       const reconciliation = await client.reconcileEffect({
         effectId: identity.effectId,
         decision: "CONFIRMED_FAILED",
-        reconciledBy: "operator-pr12",
+        reconciledBy: "operator-demo",
         externalReference: "incident-alert-unknown",
       });
       assert.equal(reconciliation.created, true);
@@ -538,7 +538,7 @@ const scenarios = [
 ];
 
 const report = {
-  suite: "aegisflow-pr12-demo-benchmark",
+  suite: "aegisflow-deterministic-demo-benchmark",
   benchmarkKind: "semantic-correctness",
   performanceClaim: false,
   scenarios: [],
