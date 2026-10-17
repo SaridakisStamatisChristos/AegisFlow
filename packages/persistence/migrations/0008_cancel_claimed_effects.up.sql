@@ -1,4 +1,4 @@
-CREATE FUNCTION aegisflow_quarantine_claimed_effects_on_stage_cancel()
+CREATE OR REPLACE FUNCTION aegisflow_quarantine_claimed_effects_on_stage_cancel()
 RETURNS trigger
 LANGUAGE plpgsql
 AS $$
@@ -17,6 +17,7 @@ BEGIN
 END;
 $$;
 
+DROP TRIGGER IF EXISTS stage_executions_quarantine_claimed_effects_on_cancel ON stage_executions;
 CREATE TRIGGER stage_executions_quarantine_claimed_effects_on_cancel
 AFTER UPDATE OF state ON stage_executions
 FOR EACH ROW
