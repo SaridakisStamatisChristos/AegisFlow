@@ -27,7 +27,7 @@ export class GitHubConnector implements ToolConnector {
     this.http = new HttpConnector({
       allowedOrigins: ["https://api.github.com"],
       authorityScope: options.authorityScope,
-      fetch: options.fetch,
+      ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
       defaultHeaders: {
         authorization: `Bearer ${options.token}`,
         accept: "application/vnd.github+json",
