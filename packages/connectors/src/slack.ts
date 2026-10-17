@@ -1,4 +1,4 @@
-import type { JsonObject } from "@aegisflow/contracts";
+import type { JsonObject, JsonValue } from "@aegisflow/contracts";
 import type { ConnectorExecutionContext, ConnectorResult, ToolConnector } from "./connector.js";
 import { ConnectorInvocationError, ToolRuntimeError } from "./errors.js";
 import { HttpConnector, type FetchLike } from "./http.js";
@@ -22,7 +22,7 @@ export class SlackConnector implements ToolConnector {
     this.http = new HttpConnector({
       allowedOrigins: ["https://slack.com"],
       authorityScope: options.authorityScope,
-      fetch: options.fetch,
+      ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
       defaultHeaders: {
         authorization: `Bearer ${options.token}`,
         "user-agent": "AegisFlow/0.1",
@@ -46,17 +46,17 @@ export class SlackConnector implements ToolConnector {
     const result = await this.http.execute({
       method: "POST",
       url: "https://slack.com/api/chat.postMessage",
-      body: {
-        channel,
-        text,
-        ...(threadTs === undefined ? {} : { thread_ts: threadTs }),
-      },
+      body: { channel, text, ...(threadTs === undefined ? {} : { thread_ts: threadTs }) },
     }, context);
     const output = result.output;
     let reference = result.externalReference;
     if (typeof output === "object" && output !== null && !Array.isArray(output)) {
-      const body = output.body;
-      if (typeof body === "object" && body !== null && !Array.isArray(body) && typeof body.ts === "string") reference = body.ts;
+      const record = output as Readonly<Record<string, JsonValue>>;
+      const body = record.body;
+      if (typeof body === "object" && body !== null && !Array.isArray(body)) {
+        const bodyRecord = body as Readonly<Record<string, JsonValue>>;
+        if (typeof bodyRecord.ts === "string") reference = bodyRecord.ts;
+      }
     }
     return Object.freeze({ output, ...(reference === undefined ? {} : { externalReference: reference }) });
   }
