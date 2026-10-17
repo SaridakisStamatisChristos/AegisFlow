@@ -49,42 +49,58 @@ test("HTTP connector rejects unapproved origins and credential headers before tr
   assert.equal(calls, 0);
 });
 
-test("GitHub connector injects credentials while tool input cannot replace them", async () => {
+test("GitHub connector injects credentials and enforces allowed API path authority", async () => {
   let observed;
+  let calls = 0;
   const connector = new GitHubConnector({
     token: "github-secret-token",
-    authorityScope: "github:repo:test",
+    authorityScope: "github:repo:acme/demo",
+    allowedPathPrefixes: ["/repos/acme/demo"],
     fetch: async (url, init) => {
+      calls += 1;
       observed = { url: String(url), init };
       return jsonResponse({ id: 1 }, { headers: { "x-github-request-id": "GH-123" } });
     },
   });
-  const result = await connector.execute({ path: "/repos/acme/demo", query: { page: 2 } }, { effectKey: "effect" });
-  assert.match(observed.url, /^https:\/\/api\.github\.com\/repos\/acme\/demo\?page=2$/);
+  const result = await connector.execute({ path: "/repos/acme/demo/issues", query: { page: 2 } }, { effectKey: "effect" });
+  assert.match(observed.url, /^https:\/\/api\.github\.com\/repos\/acme\/demo\/issues\?page=2$/);
   assert.equal(observed.init.headers.authorization, "Bearer github-secret-token");
   assert.equal(result.externalReference, "GH-123");
+  await assert.rejects(
+    connector.execute({ path: "/repos/acme/other/issues" }, { effectKey: "effect" }),
+    (error) => error instanceof ConnectorInvocationError && error.connectorCode === "path_not_allowed",
+  );
+  await assert.rejects(
+    connector.execute({ path: "/repos/acme/demo/../other/issues" }, { effectKey: "effect" }),
+    (error) => error instanceof ConnectorInvocationError && error.connectorCode === "path_not_allowed",
+  );
+  assert.equal(calls, 1);
 });
 
-test("GitHub connector cannot escape api.github.com through network-path references", async () => {
+test("GitHub connector rejects network-path references before transport", async () => {
   let calls = 0;
   const connector = new GitHubConnector({
     token: "token",
     authorityScope: "github:test",
+    allowedPathPrefixes: ["/repos/acme/demo"],
     fetch: async () => { calls += 1; return jsonResponse({}); },
   });
   await assert.rejects(
     connector.execute({ path: "//evil.example.test/repos/x" }, { effectKey: "effect" }),
-    (error) => error instanceof ConnectorInvocationError && error.connectorCode === "origin_not_allowed",
+    (error) => error instanceof ConnectorInvocationError && error.connectorCode === "invalid_path",
   );
   assert.equal(calls, 0);
 });
 
-test("Slack connector is fixed to chat.postMessage and extracts message ts evidence", async () => {
+test("Slack connector is fixed to chat.postMessage and enforces allowed channel authority", async () => {
   let observed;
+  let calls = 0;
   const connector = new SlackConnector({
     token: "slack-secret-token",
     authorityScope: "slack:channel:C123",
+    allowedChannels: ["C123"],
     fetch: async (url, init) => {
+      calls += 1;
       observed = { url: String(url), init };
       return jsonResponse({ ok: true, channel: "C123", ts: "12345.6789" });
     },
@@ -93,4 +109,9 @@ test("Slack connector is fixed to chat.postMessage and extracts message ts evide
   assert.equal(observed.url, "https://slack.com/api/chat.postMessage");
   assert.equal(observed.init.headers.authorization, "Bearer slack-secret-token");
   assert.equal(result.externalReference, "12345.6789");
+  await assert.rejects(
+    connector.execute({ channel: "C999", text: "blocked" }, { effectKey: "effect" }),
+    (error) => error instanceof ConnectorInvocationError && error.connectorCode === "channel_not_allowed",
+  );
+  assert.equal(calls, 1);
 });
