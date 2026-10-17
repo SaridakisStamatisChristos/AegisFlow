@@ -1,0 +1,23 @@
+{
+  "name": "@aegisflow/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "aegisflow-api": "./dist/main.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "dependencies": {
+    "@aegisflow/contracts": "0.1.0",
+    "@aegisflow/core": "0.1.0",
+    "@aegisflow/effects": "0.1.0",
+    "@aegisflow/gates": "0.1.0",
+    "pg": "8.23.1"
+  }
+}

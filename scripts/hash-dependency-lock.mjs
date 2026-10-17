@@ -9,6 +9,7 @@ const artifacts = [
   "package-lock.json",
   ".github/workflows/ci.yml",
   "scripts/hash-dependency-lock.mjs",
+  "packages/api/package.json",
   "packages/connectors/package.json",
   "packages/contracts/package.json",
   "packages/core/package.json",
@@ -17,6 +18,7 @@ const artifacts = [
   "packages/persistence/package.json",
   "packages/providers/package.json",
   "packages/queue/package.json",
+  "packages/sdk/package.json",
 ];
 
 const generated = [];
