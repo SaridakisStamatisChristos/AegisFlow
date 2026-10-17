@@ -220,10 +220,11 @@ export function createControlServer(service: PostgresControlService): Server {
         }
         if (method === "POST" && parts.length === 4 && parts[3] === "reconcile") {
           const body = requireRecord(await readJson(request));
-          const decision = requireString(body.decision, "decision");
-          if (decision !== "CONFIRMED_SUCCEEDED" && decision !== "CONFIRMED_FAILED") {
+          const decisionText = requireString(body.decision, "decision");
+          if (decisionText !== "CONFIRMED_SUCCEEDED" && decisionText !== "CONFIRMED_FAILED") {
             throw new ControlApiError("INVALID_INPUT", "decision must be CONFIRMED_SUCCEEDED or CONFIRMED_FAILED.");
           }
+          const decision: "CONFIRMED_SUCCEEDED" | "CONFIRMED_FAILED" = decisionText;
           const reconciledBy = requireString(body.reconciledBy, "reconciledBy");
           const externalReference = body.externalReference;
           if (externalReference !== undefined && typeof externalReference !== "string") {
