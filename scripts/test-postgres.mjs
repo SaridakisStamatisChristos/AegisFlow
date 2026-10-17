@@ -6,6 +6,19 @@ if (databaseUrl === undefined || databaseUrl.length === 0) {
   throw new Error("DATABASE_URL is required for PostgreSQL integration tests.");
 }
 
+const legacyProviderRuntimePattern = [
+  "Agent Stage executes one provider call",
+  "provider result evidence is database-enforced immutable",
+  "database validation rejects provider evidence",
+  "schema mismatch fails the Stage",
+  "tool request is durably recorded",
+  "provider cannot request a tool",
+  "recovery reuses a durable provider result",
+  "orphaned in-flight provider call",
+  "known and ambiguous provider failures",
+  "non-Agent Stage and missing provider",
+].join("|");
+
 const suites = [
   { path: "packages/persistence/test/persistence.integration.test.mjs", args: [] },
   { path: "packages/queue/test/queue.integration.test.mjs", args: [] },
@@ -13,7 +26,7 @@ const suites = [
   { path: "packages/gates/test/gates.integration.test.mjs", args: [] },
   {
     path: "packages/providers/test/runtime.integration.test.mjs",
-    args: ["--test-name-pattern=^(?!PR7 migration 0005).*$"],
+    args: [`--test-name-pattern=${legacyProviderRuntimePattern}`],
   },
   { path: "packages/connectors/test/runtime.integration.test.mjs", args: [] },
   { path: "packages/providers/test/runtime-v8.integration.test.mjs", args: [] },
