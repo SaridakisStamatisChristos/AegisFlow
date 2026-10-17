@@ -28,6 +28,7 @@ const repository = new PostgresPersistence(pool);
 async function dropTestSchema() {
   await pool.query(`
     DROP TABLE IF EXISTS signals, api_idempotency, agent_tool_results, agent_provider_results, gate_resolutions, gate_protections, gates, effect_reconciliations, effects, claims, execution_events, attempts, stage_executions, executions, flow_versions, flows CASCADE;
+    DROP FUNCTION IF EXISTS aegisflow_quarantine_claimed_effects_on_stage_cancel();
     DROP FUNCTION IF EXISTS aegisflow_reject_signal_mutation();
     DROP FUNCTION IF EXISTS aegisflow_validate_signal_execution();
     DROP FUNCTION IF EXISTS aegisflow_reject_agent_tool_result_mutation();
@@ -95,6 +96,7 @@ test("clean migration chain applies, rolls back, and reapplies", async () => {
     "0005_agent_provider_results",
     "0006_agent_tool_results",
     "0007_control_api",
+    "0008_cancel_claimed_effects",
   ];
   assert.deepEqual(await migrateUp(pool), expected);
 
@@ -106,6 +108,12 @@ test("clean migration chain applies, rolls back, and reapplies", async () => {
      ORDER BY tablename`,
   );
   assert.equal(tables.rowCount, 16);
+
+  assert.equal(await rollbackLastMigration(pool), "0008_cancel_claimed_effects");
+  assert.equal(
+    (await pool.query("SELECT to_regprocedure('aegisflow_quarantine_claimed_effects_on_stage_cancel()') AS function_name")).rows[0].function_name,
+    null,
+  );
 
   assert.equal(await rollbackLastMigration(pool), "0007_control_api");
   assert.equal((await pool.query("SELECT to_regclass('public.signals') AS table_name")).rows[0].table_name, null);
