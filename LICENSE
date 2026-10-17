@@ -1,5 +1,45 @@
+AEGISFLOW PROPRIETARY LICENSE
+
 Copyright (c) 2026 Stamatis-Christos Saridakis. All rights reserved.
 
-This source code and associated documentation are proprietary. No license is
-granted to use, copy, modify, distribute, sublicense, or create derivative works
-except with prior written permission from the copyright holder.
+This software, including its source code, object code, documentation, designs,
+workflows, schemas, tests, examples, and other associated materials
+(collectively, the "Software"), is proprietary and confidential intellectual
+property of Stamatis-Christos Saridakis except where third-party materials are
+expressly identified otherwise.
+
+No license or other rights are granted by possession of, access to, or
+publication of the Software. Without prior written permission from the
+copyright holder, you may not, in whole or in part:
+
+1. use, execute, deploy, host, operate, or provide the Software as a service;
+2. copy, reproduce, distribute, publish, transmit, sublicense, sell, rent,
+   lease, lend, or otherwise make the Software available to any third party;
+3. modify, adapt, translate, create derivative works from, reverse engineer,
+   decompile, disassemble, or otherwise attempt to derive the Software or its
+   underlying implementation, except only to the extent such restriction is
+   prohibited by applicable law;
+4. remove, obscure, or alter copyright, ownership, attribution, or proprietary
+   notices; or
+5. use the Software or any substantial portion of it to create, train, improve,
+   benchmark, or provide a competing product or service.
+
+Any permission granted by the copyright holder must be in writing and applies
+only to the rights and scope expressly stated in that permission. No implied
+licenses are granted under copyright, patent, trademark, trade secret, or any
+other intellectual-property right.
+
+Third-party software, libraries, assets, or other materials included with or
+referenced by the Software remain subject to their respective licenses and
+notices. Nothing in this license restricts rights that a third-party license
+independently grants with respect to those third-party materials.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND WITHOUT WARRANTIES OF ANY KIND, EXPRESS
+OR IMPLIED, INCLUDING WITHOUT LIMITATION WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND NON-INFRINGEMENT. TO THE MAXIMUM
+EXTENT PERMITTED BY LAW, THE COPYRIGHT HOLDER SHALL NOT BE LIABLE FOR ANY
+DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, CONSEQUENTIAL, OR OTHER
+DAMAGES ARISING FROM OR RELATED TO THE SOFTWARE OR ITS USE.
+
+For commercial licensing, evaluation rights, redistribution rights, or other
+permissions, obtain prior written authorization from the copyright holder.
