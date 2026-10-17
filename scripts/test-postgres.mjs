@@ -13,7 +13,7 @@ const suites = [
   { path: "packages/gates/test/gates.integration.test.mjs", args: [] },
   {
     path: "packages/providers/test/runtime.integration.test.mjs",
-    args: ["--test-name-pattern", "^(?!PR7 migration 0005).*$"],
+    args: ["--test-name-pattern=^(?!PR7 migration 0005).*$"],
   },
   { path: "packages/connectors/test/runtime.integration.test.mjs", args: [] },
   { path: "packages/providers/test/runtime-v8.integration.test.mjs", args: [] },
