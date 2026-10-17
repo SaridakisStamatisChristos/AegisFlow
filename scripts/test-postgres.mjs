@@ -31,12 +31,17 @@ const suites = [
   { path: "packages/connectors/test/runtime.integration.test.mjs", args: [] },
   { path: "packages/providers/test/runtime-v8.integration.test.mjs", args: [] },
   { path: "packages/providers/test/runtime-v8-fencing.integration.test.mjs", args: [] },
+  { path: "packages/api/test/control-api.integration.test.mjs", args: [] },
 ];
 
 const pool = new Pool({ connectionString: databaseUrl, max: 2 });
 
 async function cleanFeatureExtensions() {
   await pool.query(`
+    DROP TABLE IF EXISTS signals CASCADE;
+    DROP TABLE IF EXISTS api_idempotency CASCADE;
+    DROP FUNCTION IF EXISTS aegisflow_reject_signal_mutation();
+    DROP FUNCTION IF EXISTS aegisflow_validate_signal_execution();
     DROP TABLE IF EXISTS agent_tool_results CASCADE;
     DROP FUNCTION IF EXISTS aegisflow_reject_agent_tool_result_mutation();
     DROP FUNCTION IF EXISTS aegisflow_validate_agent_tool_result();

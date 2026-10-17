@@ -9,6 +9,8 @@ for (const packageName of [
   "gates",
   "connectors",
   "providers",
+  "sdk",
+  "api",
 ]) {
   await rm(new URL(`../packages/${packageName}/dist`, import.meta.url), {
     recursive: true,

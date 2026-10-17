@@ -27,7 +27,9 @@ const repository = new PostgresPersistence(pool);
 
 async function dropTestSchema() {
   await pool.query(`
-    DROP TABLE IF EXISTS agent_tool_results, agent_provider_results, gate_resolutions, gate_protections, gates, effect_reconciliations, effects, claims, execution_events, attempts, stage_executions, executions, flow_versions, flows CASCADE;
+    DROP TABLE IF EXISTS signals, api_idempotency, agent_tool_results, agent_provider_results, gate_resolutions, gate_protections, gates, effect_reconciliations, effects, claims, execution_events, attempts, stage_executions, executions, flow_versions, flows CASCADE;
+    DROP FUNCTION IF EXISTS aegisflow_reject_signal_mutation();
+    DROP FUNCTION IF EXISTS aegisflow_validate_signal_execution();
     DROP FUNCTION IF EXISTS aegisflow_reject_agent_tool_result_mutation();
     DROP FUNCTION IF EXISTS aegisflow_validate_agent_tool_result();
     DROP FUNCTION IF EXISTS aegisflow_reject_agent_provider_result_mutation();
@@ -42,7 +44,7 @@ async function dropTestSchema() {
 
 async function resetData() {
   await pool.query(
-    "TRUNCATE agent_tool_results, agent_provider_results, gate_resolutions, gate_protections, gates, effect_reconciliations, effects, claims, execution_events, attempts, stage_executions, executions, flow_versions, flows RESTART IDENTITY",
+    "TRUNCATE signals, api_idempotency, agent_tool_results, agent_provider_results, gate_resolutions, gate_protections, gates, effect_reconciliations, effects, claims, execution_events, attempts, stage_executions, executions, flow_versions, flows RESTART IDENTITY",
   );
 }
 
@@ -92,6 +94,7 @@ test("clean migration chain applies, rolls back, and reapplies", async () => {
     "0004_durable_gates",
     "0005_agent_provider_results",
     "0006_agent_tool_results",
+    "0007_control_api",
   ];
   assert.deepEqual(await migrateUp(pool), expected);
 
@@ -99,10 +102,15 @@ test("clean migration chain applies, rolls back, and reapplies", async () => {
     `SELECT tablename
      FROM pg_tables
      WHERE schemaname = 'public'
-       AND tablename IN ('flows', 'flow_versions', 'executions', 'stage_executions', 'attempts', 'execution_events', 'claims', 'effects', 'effect_reconciliations', 'gates', 'gate_protections', 'gate_resolutions', 'agent_provider_results', 'agent_tool_results')
+       AND tablename IN ('flows', 'flow_versions', 'executions', 'stage_executions', 'attempts', 'execution_events', 'claims', 'effects', 'effect_reconciliations', 'gates', 'gate_protections', 'gate_resolutions', 'agent_provider_results', 'agent_tool_results', 'api_idempotency', 'signals')
      ORDER BY tablename`,
   );
-  assert.equal(tables.rowCount, 14);
+  assert.equal(tables.rowCount, 16);
+
+  assert.equal(await rollbackLastMigration(pool), "0007_control_api");
+  assert.equal((await pool.query("SELECT to_regclass('public.signals') AS table_name")).rows[0].table_name, null);
+  assert.equal((await pool.query("SELECT to_regclass('public.api_idempotency') AS table_name")).rows[0].table_name, null);
+  assert.notEqual((await pool.query("SELECT to_regclass('public.agent_tool_results') AS table_name")).rows[0].table_name, null);
 
   assert.equal(await rollbackLastMigration(pool), "0006_agent_tool_results");
   assert.equal((await pool.query("SELECT to_regclass('public.agent_tool_results') AS table_name")).rows[0].table_name, null);

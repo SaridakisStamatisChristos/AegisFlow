@@ -12,6 +12,8 @@ const rules = [
   ["gates", ["@aegisflow/contracts", "@aegisflow/core", "@aegisflow/persistence", "pg"]],
   ["connectors", ["@aegisflow/contracts", "@aegisflow/effects", "pg"]],
   ["providers", ["@aegisflow/connectors", "@aegisflow/contracts", "@aegisflow/effects", "@aegisflow/queue", "pg"]],
+  ["sdk", ["@aegisflow/contracts"]],
+  ["api", ["@aegisflow/contracts", "@aegisflow/core", "@aegisflow/effects", "@aegisflow/gates", "pg"]],
 ];
 
 const importPattern = /(?:from\s+|import\s*)["']([^"']+)["']/g;
@@ -46,4 +48,4 @@ if (failures.length > 0) {
   console.error("architecture boundary violation:\n" + failures.join("\n"));
   process.exit(1);
 }
-console.log("boundaries: contracts isolated; durable core/persistence layers constrained; connectors -> contracts + effects + PostgreSQL; providers -> connectors + queue + effects");
+console.log("boundaries: domain layers remain inward-facing; SDK -> contracts; API -> contracts/core/effects/gates/PostgreSQL");
