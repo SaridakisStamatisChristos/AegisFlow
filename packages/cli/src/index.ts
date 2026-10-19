@@ -50,6 +50,7 @@ Usage:
 
 Environment:
   AEGISFLOW_BASE_URL   Control API URL (default: ${DEFAULT_BASE_URL})
+  AEGISFLOW_API_TOKEN  Opaque service credential (requires HTTPS or loopback)
 
 Exit codes:
   0  command completed successfully
@@ -171,7 +172,7 @@ function requireJsonObject(value: unknown, label: string): JsonObject {
   return value as JsonObject;
 }
 
-function createClient(baseUrl: string, fetcher: typeof globalThis.fetch | undefined): AegisFlowClient {
+function createClient(baseUrl: string, fetcher: typeof globalThis.fetch | undefined, apiToken: string | undefined): AegisFlowClient {
   try {
     const parsed = new URL(baseUrl);
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
@@ -181,8 +182,8 @@ function createClient(baseUrl: string, fetcher: typeof globalThis.fetch | undefi
     throw new CliUsageError("--base-url / AEGISFLOW_BASE_URL must be an http(s) URL.");
   }
   return fetcher === undefined
-    ? new AegisFlowClient({ baseUrl })
-    : new AegisFlowClient({ baseUrl, fetch: fetcher });
+    ? new AegisFlowClient({ baseUrl, apiToken })
+    : new AegisFlowClient({ baseUrl, fetch: fetcher, apiToken });
 }
 
 async function handleFlow(
@@ -321,7 +322,7 @@ export async function runCli(
     if (resource === undefined) throw new CliUsageError("A resource command is required.");
     let client: AegisFlowClient | undefined;
     const getClient = (): AegisFlowClient => {
-      client ??= createClient(baseUrl, dependencies.fetch);
+      client ??= createClient(baseUrl, dependencies.fetch, env.AEGISFLOW_API_TOKEN);
       return client;
     };
 
