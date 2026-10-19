@@ -44,8 +44,11 @@ export interface OperatorConsoleClient {
 }
 
 export interface OperatorConsoleOptions {
-  readonly client: OperatorConsoleClient;
+  readonly client?: OperatorConsoleClient;
   readonly csrfToken?: string;
+  /** Authenticated request hook; production console must configure this. */
+  readonly authorize?: (request: IncomingMessage, response: ServerResponse) =>
+    Promise<{ readonly client: OperatorConsoleClient; readonly csrfToken: string } | undefined>;
 }
 
 class ConsoleInputError extends Error {
@@ -156,7 +159,8 @@ function table(headers: readonly string[], rows: readonly string[]): string {
 }
 
 export function createOperatorConsoleServer(options: OperatorConsoleOptions): Server {
-  const token = options.csrfToken ?? randomUUID(); const client = options.client;
+  if (options.client === undefined && options.authorize === undefined) throw new Error("Operator console requires a client or an authenticated request hook.");
+  const testToken = options.csrfToken ?? randomUUID();
   return createServer(async (request, response) => {
     try {
       // Browser requests must name a literal loopback authority. Without this,
@@ -170,6 +174,11 @@ export function createOperatorConsoleServer(options: OperatorConsoleOptions): Se
           request.headers.origin !== `http://${authority}`) {
         throw new ConsoleInputError("Cross-origin operator submissions are not allowed.");
       }
+      const approved = options.authorize === undefined ? undefined : await options.authorize(request, response);
+      if (options.authorize !== undefined && approved === undefined) return;
+      const client = approved?.client ?? options.client;
+      if (client === undefined) throw new Error("No authenticated console client.");
+      const token = approved?.csrfToken ?? testToken;
       const method = request.method ?? "GET"; const path = parts(request);
       if (method === "GET" && path.length === 0) {
         const [flows, executions, gates, effects] = await Promise.all([client.listFlows(), client.listExecutions(), client.listPendingGates(), client.listEffects()]);
