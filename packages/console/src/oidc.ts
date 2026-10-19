@@ -24,8 +24,8 @@ function response(response: ServerResponse, status: number, message: string): vo
   response.end(message);
 }
 function redirect(response: ServerResponse, target: string, cookie?: string | readonly string[]): void {
-  const headers: Record<string, string | readonly string[]> = { location: target, "cache-control": "no-store" };
-  if (cookie) headers["set-cookie"] = cookie;
+  const headers: Record<string, string | string[]> = { location: target, "cache-control": "no-store" };
+  if (cookie) headers["set-cookie"] = typeof cookie === "string" ? cookie : [...cookie];
   response.writeHead(303, headers); response.end();
 }
 function parseCookies(request: IncomingMessage): Map<string, string> {
