@@ -14,9 +14,9 @@ const rules = [
   ["connectors", ["@aegisflow/contracts", "@aegisflow/effects", "pg"]],
   ["providers", ["@aegisflow/connectors", "@aegisflow/contracts", "@aegisflow/effects", "@aegisflow/queue", "pg"]],
   ["sdk", ["@aegisflow/contracts"]],
-  ["api", ["@aegisflow/contracts", "@aegisflow/core", "@aegisflow/effects", "@aegisflow/flows", "@aegisflow/gates", "pg"]],
+  ["api", ["@aegisflow/contracts", "@aegisflow/core", "@aegisflow/effects", "@aegisflow/flows", "@aegisflow/gates", "pg", "jose"]],
   ["cli", ["@aegisflow/contracts", "@aegisflow/sdk"]],
-  ["console", ["@aegisflow/contracts", "@aegisflow/sdk"]],
+  ["console", ["@aegisflow/contracts", "@aegisflow/sdk", "openid-client"]],
 ];
 
 const importPattern = /(?:from\s+|import\s*)["']([^"']+)["']/g;
