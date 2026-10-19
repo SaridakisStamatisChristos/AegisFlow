@@ -10,12 +10,15 @@ export interface ApiCredential {
   /** SHA-256 hex digest of a randomly generated, high-entropy bearer token. Never the token itself. */
   readonly sha256: string;
   readonly role: ApiRole;
+  /** Enforces a separately verified human identity for this service credential. */
+  readonly requiresHuman?: boolean;
   readonly expiresAt?: string;
 }
 
 export interface ApiPrincipal {
   readonly id: string;
   readonly role: ApiRole;
+  readonly requiresHuman: boolean;
 }
 
 const ROLE_CAPABILITIES: Readonly<Record<ApiRole, readonly ApiCapability[]>> = {
@@ -38,7 +41,7 @@ function validateCredentials(value: unknown): readonly ApiCredential[] {
       throw new Error("Invalid API credential record.");
     }
     const record = item as Record<string, unknown>;
-    const { id, sha256, role, expiresAt } = record;
+    const { id, sha256, role, expiresAt, requiresHuman } = record;
     if (typeof id !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$/.test(id) || ids.has(id)) {
       throw new Error("API credential IDs must be unique, nonempty and URL-safe.");
     }
@@ -55,9 +58,12 @@ function validateCredentials(value: unknown): readonly ApiCredential[] {
     )) {
       throw new Error("API credential expiresAt must be an RFC 3339 UTC timestamp.");
     }
+    if (requiresHuman !== undefined && typeof requiresHuman !== "boolean") {
+      throw new Error("requiresHuman must be a boolean.");
+    }
     ids.add(id);
     hashes.add(sha256);
-    const credential = { id, sha256, role: role as ApiRole };
+    const credential = { id, sha256, role: role as ApiRole, requiresHuman: requiresHuman === true };
     return expiresAt === undefined ? credential : { ...credential, expiresAt: expiresAt as string };
   });
 }
@@ -121,6 +127,7 @@ export function createApiAuthenticator(input: readonly ApiCredential[]): (
   const credentials = validateCredentials(input).map((record) => ({
     id: record.id,
     role: record.role,
+    requiresHuman: record.requiresHuman === true,
     digest: Buffer.from(record.sha256, "hex"),
     expiresAtMs: record.expiresAt === undefined ? Infinity : Date.parse(record.expiresAt),
   }));
@@ -141,7 +148,7 @@ export function createApiAuthenticator(input: readonly ApiCredential[]): (
     // Inspect every configured hash; do not short-circuit at the matching credential.
     for (const credential of credentials) {
       if (timingSafeEqual(digest, credential.digest) && credential.expiresAtMs > Date.now()) {
-        principal = { id: credential.id, role: credential.role };
+        principal = { id: credential.id, role: credential.role, requiresHuman: credential.requiresHuman };
       }
     }
     if (principal === undefined) throw new ControlApiError("UNAUTHENTICATED", "Invalid bearer credential.");
