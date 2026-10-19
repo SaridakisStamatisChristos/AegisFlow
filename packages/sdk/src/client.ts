@@ -3,7 +3,7 @@ import type {
   GateId, GateState, JsonObject, SignalId, StageExecutionId,
 } from "@aegisflow/contracts";
 
-export interface AegisFlowClientOptions { readonly baseUrl: string; readonly fetch?: typeof globalThis.fetch; readonly apiToken?: string; }
+export interface AegisFlowClientOptions { readonly baseUrl: string; readonly fetch?: typeof globalThis.fetch; readonly apiToken?: string | undefined; }
 export interface RegisteredFlowResponse {
   readonly flow: { readonly id: FlowId; readonly name: string; readonly description: string | null };
   readonly version: { readonly id: FlowVersionId; readonly version: number; readonly definition: FlowDefinition };
