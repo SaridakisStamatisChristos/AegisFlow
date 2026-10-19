@@ -19,3 +19,5 @@ The agent runtime itself never confers API authority. No changes to Graph eligib
 ## Independent verification targets
 
 Unit/endpoint positives: correct role can read/execute/approve. Negatives: missing/malformed/wrong/expired token, role escalation, forged actor/reconciler, config duplicates, missing config and unauthenticated side effects. Integration: existing PostgreSQL API workflows with authenticated SDK should continue working. CI must run; hosted deployment, ingress/TLS policies and real browser identity remain unverified until exercised.
+
+Local-console hardening: incoming browser Host must be a literal loopback authority; mismatched POST Origin is rejected before SDK calls to reduce DNS-rebinding and cross-site risks. This is defense in depth, not human authentication. Tests exercise forged Host and Origin on loopback sockets.

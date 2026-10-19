@@ -149,6 +149,17 @@ export function createOperatorConsoleServer(options: OperatorConsoleOptions): Se
   const token = options.csrfToken ?? randomUUID(); const client = options.client;
   return createServer(async (request, response) => {
     try {
+      // Browser requests must name a literal loopback authority. Without this,
+      // DNS rebinding could expose the local operator console to hostile origins.
+      const authority = request.headers.host;
+      if (typeof authority !== "string" ||
+          !/^(?:127\\.0\\.0\\.1|\\[::1\\]):[0-9]{1,5}$/u.test(authority)) {
+        throw new ConsoleInputError("Operator console requires a literal loopback Host.");
+      }
+      if (request.method === "POST" && request.headers.origin !== undefined &&
+          request.headers.origin !== `http://${authority}`) {
+        throw new ConsoleInputError("Cross-origin operator submissions are not allowed.");
+      }
       const method = request.method ?? "GET"; const path = parts(request);
       if (method === "GET" && path.length === 0) {
         const [flows, executions, gates, effects] = await Promise.all([client.listFlows(), client.listExecutions(), client.listPendingGates(), client.listEffects()]);
