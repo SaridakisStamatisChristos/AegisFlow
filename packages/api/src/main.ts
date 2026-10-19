@@ -4,6 +4,7 @@ import { Pool } from "pg";
 import { PostgresControlService } from "./control-service.js";
 import { createControlServer } from "./http.js";
 import { parseApiCredentials } from "./auth.js";
+import { createHumanAuthenticator, readHumanSettings } from "./human-auth.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (databaseUrl === undefined || databaseUrl.length === 0) {
@@ -25,7 +26,10 @@ if (
 const pool = new Pool({ connectionString: databaseUrl });
 const service = new PostgresControlService(pool);
 const scheduler = new PostgresFlowScheduler(pool);
-const server = createControlServer(service, parseApiCredentials(process.env.AEGISFLOW_API_KEYS_JSON));
+const credentials = parseApiCredentials(process.env.AEGISFLOW_API_KEYS_JSON);
+const humanAuthenticator = credentials.some((item) => item.requiresHuman)
+  ? createHumanAuthenticator(readHumanSettings(process.env)) : undefined;
+const server = createControlServer(service, credentials, humanAuthenticator);
 const bindHost = process.env.AEGISFLOW_API_HOST ?? "127.0.0.1";
 let schedulerRunning = false;
 let shuttingDown = false;
