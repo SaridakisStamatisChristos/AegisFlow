@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { once } from "node:events";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -30,7 +31,8 @@ const pool = new Pool({ connectionString: databaseUrl, max: 24 });
 const service = new PostgresControlService(pool);
 const queue = new PostgresWorkerQueue(pool);
 const effects = new PostgresEffectLedger(pool);
-const server = createControlServer(service);
+const apiToken = "aegisflowTestToken_xxxxxxxxxxxxxxxxxxxxx";
+const server = createControlServer(service, [{ id: "demo-operator", sha256: createHash("sha256").update(apiToken).digest("hex"), role: "admin" }]);
 let client;
 
 async function dropSchema() {
@@ -551,7 +553,7 @@ try {
   await listen(server);
   const address = server.address();
   if (address === null || typeof address === "string") throw new Error("Control API did not bind.");
-  client = new AegisFlowClient({ baseUrl: `http://127.0.0.1:${address.port}` });
+  client = new AegisFlowClient({ baseUrl: `http://127.0.0.1:${address.port}`, apiToken });
 
   for (const scenario of scenarios) {
     await resetData();
