@@ -35,6 +35,7 @@ const suites = [
   { path: "packages/api/test/control-api.integration.test.mjs", args: [] },
   { path: "packages/api/test/operator-views.integration.test.mjs", args: [] },
   { path: "packages/api/test/http-routing.test.mjs", args: [] },
+  { path: "packages/api/test/auth-policy.test.mjs", args: [] },
   { path: "packages/flows/test/scheduler.integration.test.mjs", args: [] },
 ];
 
