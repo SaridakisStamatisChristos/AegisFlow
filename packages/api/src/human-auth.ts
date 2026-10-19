@@ -22,7 +22,7 @@ export function readHumanSettings(env: NodeJS.ProcessEnv): HumanAuthSettings {
   const jwksUri = env.AEGISFLOW_OIDC_JWKS_URI;
   if (!issuer || !audience || !jwksUri) throw new Error("OIDC issuer, client ID and JWKS URI are required for human-bound API credentials.");
   for (const [label, value] of [["issuer", issuer], ["JWKS URI", jwksUri]]) {
-    const url = new URL(value);
+    const url = new URL(value!);
     if (url.protocol !== "https:" || url.username || url.password || url.hash) {
       throw new Error("OIDC " + label + " must be an HTTPS URL without credentials/fragments.");
     }
