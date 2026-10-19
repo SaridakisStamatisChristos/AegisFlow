@@ -11,6 +11,7 @@ import { GateLedgerError } from "@aegisflow/gates";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { ControlApiError } from "./errors.js";
 import { createApiAuthenticator, requiredCapability, type ApiCredential } from "./auth.js";
+import type { HumanActor } from "./human-auth.js";
 import {
   listOperatorEffects,
   listOperatorExecutions,
@@ -123,7 +124,14 @@ function errorBody(error: unknown): ErrorBody {
   return { error: { code, message } };
 }
 
-export function createControlServer(service: PostgresControlService, credentials: readonly ApiCredential[]): Server {
+export function createControlServer(
+  service: PostgresControlService, credentials: readonly ApiCredential[],
+  humanAuthenticator?: (request: IncomingMessage, principal: import("./auth.js").ApiPrincipal,
+    capability: import("./auth.js").ApiCapability) => Promise<HumanActor | undefined>,
+): Server {
+  if (credentials.some((item) => item.requiresHuman) && humanAuthenticator === undefined) {
+    throw new Error("Human-bound API credentials require a configured OIDC verifier.");
+  }
   const authenticate = createApiAuthenticator(credentials);
   return createServer(async (request, response) => {
     try {
@@ -139,6 +147,7 @@ export function createControlServer(service: PostgresControlService, credentials
       const capability = requiredCapability(method, parts);
       if (capability === undefined) throw new ControlApiError("NOT_FOUND", "Route not found.");
       const principal = authenticate(request, capability);
+      const human = humanAuthenticator === undefined ? undefined : await humanAuthenticator(request, principal, capability);
 
       if (method === "GET" && parts.length === 2 && parts[0] === "v1" && parts[1] === "flows") {
         sendJson(response, 200, await listOperatorFlows(service.pool)); return;
@@ -188,8 +197,8 @@ export function createControlServer(service: PostgresControlService, credentials
           const operation = parts[3];
           if (operation !== "approve" && operation !== "reject") { sendJson(response, 404, { error: { code: "NOT_FOUND", message: "Route not found." } }); return; }
           const body = requireRecord(await readJson(request));
-          const actorId = requireString(body.actorId, "actorId");
-          if (actorId !== principal.id) throw new ControlApiError("FORBIDDEN", "actorId must match authenticated identity.");
+          const actorId = human?.id ?? requireString(body.actorId, "actorId");
+          if (human === undefined && actorId !== principal.id) throw new ControlApiError("FORBIDDEN", "actorId must match authenticated identity.");
           sendJson(response, 200, await service.resolveGate(gateId, operation === "approve" ? "APPROVE" : "REJECT", actorId, body.evidence ?? {})); return;
         }
       }
@@ -204,8 +213,8 @@ export function createControlServer(service: PostgresControlService, credentials
           const decisionText = requireString(body.decision, "decision");
           if (decisionText !== "CONFIRMED_SUCCEEDED" && decisionText !== "CONFIRMED_FAILED") throw new ControlApiError("INVALID_INPUT", "decision must be CONFIRMED_SUCCEEDED or CONFIRMED_FAILED.");
           const decision: "CONFIRMED_SUCCEEDED" | "CONFIRMED_FAILED" = decisionText;
-          const reconciledBy = requireString(body.reconciledBy, "reconciledBy");
-          if (reconciledBy !== principal.id) throw new ControlApiError("FORBIDDEN", "reconciledBy must match authenticated identity.");
+          const reconciledBy = human?.id ?? requireString(body.reconciledBy, "reconciledBy");
+          if (human === undefined && reconciledBy !== principal.id) throw new ControlApiError("FORBIDDEN", "reconciledBy must match authenticated identity.");
           const externalReference = body.externalReference;
           if (externalReference !== undefined && typeof externalReference !== "string") throw new ControlApiError("INVALID_INPUT", "externalReference must be a string when supplied.");
           const input = externalReference === undefined ? { decision, reconciledBy } : { decision, reconciledBy, externalReference };
