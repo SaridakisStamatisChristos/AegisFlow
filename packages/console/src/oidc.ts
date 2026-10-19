@@ -94,7 +94,7 @@ export async function createOidcConsoleAuthorization(options: OidcConsoleOptions
     const method = request.method ?? "";
     // All successful callbacks must enter under the exactly registered origin.
     const authority = request.headers.host;
-    if (typeof authority !== "string" || "http://" + authority !== callback.origin && 
+    if (typeof authority !== "string" || "http://" + authority !== callback.origin &&
         "https://" + authority !== callback.origin) {
       response(res, 400, "Invalid callback authority."); return undefined;
     }
