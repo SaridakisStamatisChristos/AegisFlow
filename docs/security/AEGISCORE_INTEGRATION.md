@@ -1,6 +1,6 @@
 # AegisCore — Control API service identity
 
-Status: **implemented security slice**, not enterprise IAM or production certification.
+Status: **service security slice + human OIDC integration candidate**, not an enterprise IAM or production certification. The subsequent human-bound credential/OIDC implementation is documented in [HUMAN_AUTHENTICATION](HUMAN_AUTHENTICATION.md); it requires provider configuration and live verification.
 
 ## Trust boundary and rollout
 
