@@ -130,7 +130,17 @@ function evidence(form: URLSearchParams): JsonObject | undefined {
 }
 
 function safeReturnTo(form: URLSearchParams, fallback: string): string {
-  const value = form.get("returnTo"); return value !== null && value.startsWith("/") && !value.startsWith("//") ? value : fallback;
+  const value = form.get("returnTo");
+  // WHATWG URL parsing treats backslashes as path separators for HTTP URLs:
+  // "/\\attacker.example" is an external network-path redirect in browsers.
+  if (value === null || !value.startsWith("/") || value.startsWith("//") ||
+      value.includes("\\") || /[\u0000-\u001f\u007f]/u.test(value)) return fallback;
+  try {
+    const base = "http://aegisflow.invalid";
+    return new URL(value, base).origin === base ? value : fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 function actionForm(token: string, action: string, returnTo: string): string {
