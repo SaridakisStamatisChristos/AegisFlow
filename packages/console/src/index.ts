@@ -153,7 +153,7 @@ export function createOperatorConsoleServer(options: OperatorConsoleOptions): Se
       // DNS rebinding could expose the local operator console to hostile origins.
       const authority = request.headers.host;
       if (typeof authority !== "string" ||
-          !/^(?:127\\.0\\.0\\.1|\\[::1\\]):[0-9]{1,5}$/u.test(authority)) {
+          !/^(?:127\.0\.0\.1|\[::1\]):[0-9]{1,5}$/u.test(authority)) {
         throw new ConsoleInputError("Operator console requires a literal loopback Host.");
       }
       if (request.method === "POST" && request.headers.origin !== undefined &&
