@@ -205,10 +205,10 @@ test("duplicate auth headers, forged headers, expired/revoked tokens cannot reac
   const server = createControlServer({ pool: { query: async () => { work++; return { rows: [] }; } } }, credentials);
   await listen(server); t.after(() => close(server));
   const address = server.address(); assert.ok(address && typeof address !== "string");
-  assert.equal(await raw(address.port, "GET", "/v1/flows", [
+  assert.ok([400, 401].includes(await raw(address.port, "GET", "/v1/flows", [
     "Authorization", "Bearer " + tokenFor("admin"),
     "authorization", "Bearer " + tokenFor("reader"),
-  ]), 401);
+  ])), "duplicate Authorization must fail closed (parser 400 or authenticator 401)");
   const base = "http://127.0.0.1:" + address.port;
   for (const headers of [
     { authorization: "Bearer " + "Z".repeat(44) },

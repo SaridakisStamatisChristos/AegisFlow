@@ -85,7 +85,7 @@ function routePath(request: IncomingMessage): string[] {
   try {
     return raw.split("/").filter(Boolean).map((part) => {
       const decoded = decodeURIComponent(part);
-      if (decoded.includes("/") || decoded.includes("\\\\") ||
+      if (decoded.includes("/") || decoded.includes("\\") ||
           decoded === "." || decoded === "..") {
         throw new ControlApiError("INVALID_INPUT", "Noncanonical request path.");
       }
