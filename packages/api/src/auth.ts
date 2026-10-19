@@ -103,7 +103,9 @@ export function createApiAuthenticator(input: readonly ApiCredential[]): (
     }
     const match = /^Bearer ([A-Za-z0-9_-]{32,256})$/.exec(value);
     if (match === null) throw new ControlApiError("UNAUTHENTICATED", "Invalid bearer credential.");
-    const digest = createHash("sha256").update(match[1]).digest();
+    const token = match[1];
+    if (token === undefined) throw new ControlApiError("UNAUTHENTICATED", "Invalid bearer credential.");
+    const digest = createHash("sha256").update(token).digest();
     let principal: ApiPrincipal | undefined;
     // Inspect every configured hash; do not short-circuit at the matching credential.
     for (const credential of credentials) {
