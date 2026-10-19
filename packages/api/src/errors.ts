@@ -1,4 +1,6 @@
 export type ControlApiErrorCode =
+  | "UNAUTHENTICATED"
+  | "FORBIDDEN"
   | "INVALID_INPUT"
   | "NOT_FOUND"
   | "CONFLICT"
