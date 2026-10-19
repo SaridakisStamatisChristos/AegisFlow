@@ -41,6 +41,6 @@ AEGISFLOW_CONSOLE_PORT
 
 ## Trust boundary
 
-The Control API now requires a scoped service-token credential, forwarded server-side by the console from AEGISFLOW_API_TOKEN. This is **not** browser authentication. Keep the console on loopback or behind an independently authenticated reverse proxy. A non-loopback console bind additionally requires AEGISFLOW_CONSOLE_TRUSTED_PROXY=1 after configuring that proxy. Gate/Effect actor fields must match the console's API credential ID. See docs/security/AEGISCORE_INTEGRATION.md.
+The Control API now requires a scoped service-token credential, forwarded server-side by the console from AEGISFLOW_API_TOKEN. This is **not** browser authentication. The console is deliberately **loopback-only** (127.0.0.1 or ::1); non-loopback binds are rejected even if AEGISFLOW_CONSOLE_TRUSTED_PROXY=1. Do not tunnel, port-forward, proxy or container-publish it to untrusted browsers: there are no authenticated human sessions or per-human Gate/Effect audit identities. A separate, reviewed browser authentication design is required before remote use. Gate/Effect actor fields must match the console's API credential ID. See docs/security/AEGISCORE_INTEGRATION.md.
 
 Presentation safeguards include HTML escaping, Content Security Policy, clickjacking protection, protected mutation forms, bounded form bodies, local-path return redirects, and bounded operator lists.

@@ -75,13 +75,44 @@ export function parseApiCredentials(raw: string | undefined): readonly ApiCreden
   return validateCredentials(value);
 }
 
-export function requiredCapability(method: string, parts: readonly string[]): ApiCapability {
-  if (method === "GET") return "read";
-  if (method === "POST" && parts[0] === "v1" && parts[1] === "gates" &&
-      parts.length === 4 && (parts[3] === "approve" || parts[3] === "reject")) return "approve";
-  if (method === "POST" && parts[0] === "v1" && parts[1] === "effects" &&
-      parts.length === 4 && parts[3] === "reconcile") return "reconcile";
-  return "execute";
+/** Total policy for the currently implemented protected HTTP surface.
+ * Add a route here before introducing any new handler: unmatched routes are denied.
+ * Scope is instance-wide service access; no tenant/resource owner model exists yet.
+ */
+export const PROTECTED_ROUTE_POLICY: ReadonlyArray<Readonly<{
+  method: "GET" | "POST"; path: string; capability: ApiCapability;
+}>> = Object.freeze([
+  Object.freeze({ method: "GET", path: "/v1/flows", capability: "read" }),
+  Object.freeze({ method: "POST", path: "/v1/flows", capability: "execute" }),
+  Object.freeze({ method: "GET", path: "/v1/flows/:flowId", capability: "read" }),
+  Object.freeze({ method: "GET", path: "/v1/executions", capability: "read" }),
+  Object.freeze({ method: "POST", path: "/v1/executions", capability: "execute" }),
+  Object.freeze({ method: "GET", path: "/v1/executions/:executionId", capability: "read" }),
+  Object.freeze({ method: "POST", path: "/v1/executions/:executionId/cancel", capability: "execute" }),
+  Object.freeze({ method: "GET", path: "/v1/executions/:executionId/events", capability: "read" }),
+  Object.freeze({ method: "GET", path: "/v1/executions/:executionId/effects", capability: "read" }),
+  Object.freeze({ method: "GET", path: "/v1/executions/:executionId/gates", capability: "read" }),
+  Object.freeze({ method: "GET", path: "/v1/executions/:executionId/signals", capability: "read" }),
+  Object.freeze({ method: "POST", path: "/v1/executions/:executionId/signals/:signalName", capability: "execute" }),
+  Object.freeze({ method: "GET", path: "/v1/gates/pending", capability: "read" }),
+  Object.freeze({ method: "GET", path: "/v1/gates/:gateId", capability: "read" }),
+  Object.freeze({ method: "POST", path: "/v1/gates/:gateId/approve", capability: "approve" }),
+  Object.freeze({ method: "POST", path: "/v1/gates/:gateId/reject", capability: "approve" }),
+  Object.freeze({ method: "GET", path: "/v1/effects", capability: "read" }),
+  Object.freeze({ method: "GET", path: "/v1/effects/:effectId", capability: "read" }),
+  Object.freeze({ method: "POST", path: "/v1/effects/:effectId/reconcile", capability: "reconcile" }),
+]);
+
+export function requiredCapability(method: string, parts: readonly string[]): ApiCapability | undefined {
+  for (const policy of PROTECTED_ROUTE_POLICY) {
+    if (method !== policy.method) continue;
+    const pattern = policy.path.slice(1).split("/");
+    if (pattern.length !== parts.length) continue;
+    if (pattern.every((segment, i) => segment.startsWith(":")
+      ? typeof parts[i] === "string" && parts[i]!.length > 0
+      : segment === parts[i])) return policy.capability;
+  }
+  return undefined;
 }
 
 export function createApiAuthenticator(input: readonly ApiCredential[]): (

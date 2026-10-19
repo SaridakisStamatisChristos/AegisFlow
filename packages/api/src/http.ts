@@ -74,10 +74,25 @@ function idempotencyKey(request: IncomingMessage): string {
 }
 
 function routePath(request: IncomingMessage): string[] {
-  const url = new URL(request.url ?? "/", "http://aegisflow.local");
+  const raw = (request.url ?? "/").split("?")[0] ?? "/";
+  // Validate before URL parsing, which would otherwise canonicalize dot segments
+  // and turn malformed encodings into privileged route aliases.
+  if (!raw.startsWith("/") || raw.includes("//") || raw.includes("#") ||
+      /%2f|%5c/iu.test(raw) ||
+      /(?:^|\\/)(?:\\.|%2e){1,2}(?=\\/|$)/iu.test(raw)) {
+    throw new ControlApiError("INVALID_INPUT", "Noncanonical request path.");
+  }
   try {
-    return url.pathname.split("/").filter(Boolean).map((part) => decodeURIComponent(part));
+    return raw.split("/").filter(Boolean).map((part) => {
+      const decoded = decodeURIComponent(part);
+      if (decoded.includes("/") || decoded.includes("\\\\") ||
+          decoded === "." || decoded === "..") {
+        throw new ControlApiError("INVALID_INPUT", "Noncanonical request path.");
+      }
+      return decoded;
+    });
   } catch (error) {
+    if (error instanceof ControlApiError) throw error;
     throw new ControlApiError(
       "INVALID_INPUT",
       "Request path contains malformed percent-encoding.",
@@ -112,7 +127,7 @@ export function createControlServer(service: PostgresControlService, credentials
   const authenticate = createApiAuthenticator(credentials);
   return createServer(async (request, response) => {
     try {
-      const method = request.method ?? "GET";
+      const method = request.method ?? "";
       const parts = routePath(request);
 
       if (method === "GET" && parts.length === 2 && parts[0] === "health" && parts[1] === "live") {
@@ -121,7 +136,9 @@ export function createControlServer(service: PostgresControlService, credentials
       if (method === "GET" && parts.length === 2 && parts[0] === "health" && parts[1] === "ready") {
         await service.pool.query("SELECT 1"); sendJson(response, 200, { status: "ready" }); return;
       }
-      const principal = authenticate(request, requiredCapability(method, parts));
+      const capability = requiredCapability(method, parts);
+      if (capability === undefined) throw new ControlApiError("NOT_FOUND", "Route not found.");
+      const principal = authenticate(request, capability);
 
       if (method === "GET" && parts.length === 2 && parts[0] === "v1" && parts[1] === "flows") {
         sendJson(response, 200, await listOperatorFlows(service.pool)); return;
