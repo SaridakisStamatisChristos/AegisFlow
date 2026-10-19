@@ -79,3 +79,33 @@ test("oversized form bodies fail closed before SDK mutation", async () => {
     assert.equal(response.status, 400); assert.equal(called, false);
   });
 });
+
+
+test("console redirects remain local with attacker-controlled returnTo", async () => {
+  let approved = 0;
+  await withServer(fakeClient({ async approveGate() {
+    approved++;
+    return { snapshot: {}, changed: true };
+  } }), async (base) => {
+    for (const returnTo of ["/\\attacker.example/phish", "//attacker.example/phish",
+      "///attacker.example/phish", "https://attacker.example/phish", "/\nattacker.example"]) {
+      const response = await fetch(base + "/gates/gate_aaaaaaaa/decide", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ csrf, actorId: "operator", decision: "approve", returnTo }),
+        redirect: "manual",
+      });
+      assert.equal(response.status, 303, JSON.stringify(returnTo));
+      assert.equal(response.headers.get("location"), "/gates", JSON.stringify(returnTo));
+    }
+    const valid = await fetch(base + "/gates/gate_aaaaaaaa/decide", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ csrf, actorId: "operator", decision: "approve", returnTo: "/executions/exec_aaaaaaaa" }),
+      redirect: "manual",
+    });
+    assert.equal(valid.status, 303);
+    assert.equal(valid.headers.get("location"), "/executions/exec_aaaaaaaa");
+    assert.equal(approved, 6, "redirect defense preserves authorized Gate decisions");
+  });
+});
