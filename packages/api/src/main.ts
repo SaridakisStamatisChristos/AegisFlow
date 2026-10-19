@@ -3,6 +3,7 @@ import { PostgresFlowScheduler } from "@aegisflow/flows";
 import { Pool } from "pg";
 import { PostgresControlService } from "./control-service.js";
 import { createControlServer } from "./http.js";
+import { parseApiCredentials } from "./auth.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (databaseUrl === undefined || databaseUrl.length === 0) {
@@ -24,7 +25,8 @@ if (
 const pool = new Pool({ connectionString: databaseUrl });
 const service = new PostgresControlService(pool);
 const scheduler = new PostgresFlowScheduler(pool);
-const server = createControlServer(service);
+const server = createControlServer(service, parseApiCredentials(process.env.AEGISFLOW_API_KEYS_JSON));
+const bindHost = process.env.AEGISFLOW_API_HOST ?? "127.0.0.1";
 let schedulerRunning = false;
 let shuttingDown = false;
 
@@ -55,7 +57,7 @@ async function shutdown(): Promise<void> {
 process.once("SIGINT", () => void shutdown());
 process.once("SIGTERM", () => void shutdown());
 
-server.listen(parsedPort, "0.0.0.0", () => {
+server.listen(parsedPort, bindHost, () => {
   process.stdout.write(`AegisFlow Control API listening on port ${parsedPort}\n`);
   void runSchedulerTick();
 });
