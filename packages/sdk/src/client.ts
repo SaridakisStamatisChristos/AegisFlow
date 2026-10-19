@@ -3,7 +3,7 @@ import type {
   GateId, GateState, JsonObject, SignalId, StageExecutionId,
 } from "@aegisflow/contracts";
 
-export interface AegisFlowClientOptions { readonly baseUrl: string; readonly fetch?: typeof globalThis.fetch; }
+export interface AegisFlowClientOptions { readonly baseUrl: string; readonly fetch?: typeof globalThis.fetch; readonly apiToken?: string | undefined; readonly humanIdToken?: string | undefined; }
 export interface RegisteredFlowResponse {
   readonly flow: { readonly id: FlowId; readonly name: string; readonly description: string | null };
   readonly version: { readonly id: FlowVersionId; readonly version: number; readonly definition: FlowDefinition };
@@ -61,14 +61,30 @@ function normalizeBaseUrl(value: string): string {
 }
 export class AegisFlowClient {
   private readonly baseUrl: string; private readonly fetcher: typeof globalThis.fetch;
+  private readonly apiToken: string | undefined;
+  private readonly humanIdToken: string | undefined;
   constructor(options: AegisFlowClientOptions) {
     this.baseUrl = normalizeBaseUrl(options.baseUrl); this.fetcher = options.fetch ?? globalThis.fetch;
     if (typeof this.fetcher !== "function") throw new TypeError("A fetch implementation is required.");
+    this.apiToken = options.apiToken;
+    this.humanIdToken = options.humanIdToken;
+    if (this.humanIdToken !== undefined && (!this.apiToken || this.humanIdToken.length > 8192)) {
+      throw new TypeError("Human tokens require a service credential and a bounded token length.");
+    }
+    if (this.apiToken !== undefined) {
+      if (!/^[A-Za-z0-9_-]{32,256}$/.test(this.apiToken)) throw new TypeError("apiToken must be a valid opaque bearer token.");
+      const url = new URL(this.baseUrl);
+      if (url.protocol !== "https:" && !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)) {
+        throw new TypeError("Bearer credentials require HTTPS or a local loopback API URL.");
+      }
+    }
   }
   private async request<T>(method: string, path: string, body?: unknown, idempotencyKey?: string): Promise<T> {
     const headers = new Headers({ accept: "application/json" }); let encodedBody: string | undefined;
     if (body !== undefined) { headers.set("content-type", "application/json"); encodedBody = JSON.stringify(body); }
     if (idempotencyKey !== undefined) headers.set("idempotency-key", idempotencyKey);
+    if (this.apiToken !== undefined) headers.set("authorization", `Bearer ${this.apiToken}`);
+    if (this.humanIdToken !== undefined) headers.set("x-aegisflow-human-id-token", this.humanIdToken);
     const init: RequestInit = { method, headers }; if (encodedBody !== undefined) init.body = encodedBody;
     const response = await this.fetcher(`${this.baseUrl}${path}`, init); const payload = await response.json() as unknown;
     if (!response.ok) {

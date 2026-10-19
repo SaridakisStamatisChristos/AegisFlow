@@ -79,3 +79,71 @@ test("oversized form bodies fail closed before SDK mutation", async () => {
     assert.equal(response.status, 400); assert.equal(called, false);
   });
 });
+
+
+test("console redirects remain local with attacker-controlled returnTo", async () => {
+  let approved = 0;
+  await withServer(fakeClient({ async approveGate() {
+    approved++;
+    return { snapshot: {}, changed: true };
+  } }), async (base) => {
+    for (const returnTo of ["/\\attacker.example/phish", "//attacker.example/phish",
+      "///attacker.example/phish", "https://attacker.example/phish", "/\nattacker.example"]) {
+      const response = await fetch(base + "/gates/gate_aaaaaaaa/decide", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ csrf, actorId: "operator", decision: "approve", returnTo }),
+        redirect: "manual",
+      });
+      assert.equal(response.status, 303, JSON.stringify(returnTo));
+      assert.equal(response.headers.get("location"), "/gates", JSON.stringify(returnTo));
+    }
+    const valid = await fetch(base + "/gates/gate_aaaaaaaa/decide", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ csrf, actorId: "operator", decision: "approve", returnTo: "/executions/exec_aaaaaaaa" }),
+      redirect: "manual",
+    });
+    assert.equal(valid.status, 303);
+    assert.equal(valid.headers.get("location"), "/executions/exec_aaaaaaaa");
+    assert.equal(approved, 6, "redirect defense preserves authorized Gate decisions");
+  });
+});
+
+
+test("authentication hook blocks unverified browser access and keeps CSRF per session", async () => {
+  let reads = 0, writes = 0;
+  const client = fakeClient({
+    async listFlows() { reads++; return { flows: [], truncated: false }; },
+    async startExecution(input) { writes++; return { execution: { id: "exec_aaaaaaaa" } }; },
+  });
+  const server = createOperatorConsoleServer({
+    authorize: async (request, response) => {
+      if (request.headers.cookie !== "session=verified") {
+        response.writeHead(401, { "cache-control": "no-store" }); response.end("login required");
+        return undefined;
+      }
+      return { client, csrfToken: "verified-session-csrf" };
+    },
+  });
+  await listen(server);
+  try {
+    const address = server.address(); assert.ok(address && typeof address !== "string");
+    const base = "http://127.0.0.1:" + address.port;
+    assert.equal((await fetch(base + "/flows", { headers: { "x-role": "admin" } })).status, 401);
+    assert.equal(reads, 0);
+    assert.equal((await fetch(base + "/flows", { headers: { cookie: "session=verified" } })).status, 200);
+    assert.equal(reads, 1);
+    assert.equal((await fetch(base + "/flows/flow_aaaaaaaa/start", {
+      method: "POST", headers: { cookie: "session=verified", "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ csrf: "wrong-session", idempotencyKey: "k" }), redirect: "manual",
+    })).status, 400);
+    assert.equal(writes, 0);
+    const allowed = await fetch(base + "/flows/flow_aaaaaaaa/start", {
+      method: "POST", headers: { cookie: "session=verified", "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ csrf: "verified-session-csrf", idempotencyKey: "k" }), redirect: "manual",
+    });
+    assert.equal(allowed.status, 303);
+    assert.equal(writes, 1);
+  } finally { await close(server); }
+});

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { parseEffectId, parseGateId } from "@aegisflow/contracts";
 import { migrateUp } from "@aegisflow/persistence";
+import { createHash } from "node:crypto";
 import { AegisFlowClient, AegisFlowSdkError } from "@aegisflow/sdk";
 import { Pool } from "pg";
 import { createControlServer, PostgresControlService } from "../dist/index.js";
@@ -13,7 +14,8 @@ if (databaseUrl === undefined || databaseUrl.length === 0) {
 
 const pool = new Pool({ connectionString: databaseUrl, max: 12 });
 const service = new PostgresControlService(pool);
-const server = createControlServer(service);
+const apiToken = "aegisflowTestToken_xxxxxxxxxxxxxxxxxxxxx";
+const server = createControlServer(service, [{ id: "operator-1", sha256: createHash("sha256").update(apiToken).digest("hex"), role: "admin" }]);
 let client;
 
 async function dropTestSchema() {
@@ -52,7 +54,7 @@ test.before(async () => {
   await listen(server);
   const address = server.address();
   if (address === null || typeof address === "string") throw new Error("Control API did not bind a TCP port.");
-  client = new AegisFlowClient({ baseUrl: `http://127.0.0.1:${address.port}` });
+  client = new AegisFlowClient({ baseUrl: `http://127.0.0.1:${address.port}`, apiToken });
 });
 
 test.after(async () => {

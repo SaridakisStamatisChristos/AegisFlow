@@ -80,7 +80,7 @@ The Control API provides Flow registration/version inspection, execution start a
 
 The SDK communicates only with the public API. The CLI and server-rendered console use the SDK rather than PostgreSQL internals. Console mutation forms are CSRF-protected and dynamic HTML is escaped.
 
-Authentication/RBAC/SSO are not part of the current runtime. Until an authentication layer is added, the Control API and console must remain on a trusted network or behind an authenticated reverse proxy.
+The Control API now has fail-closed, hashed service-token authentication and role-based route permission checks, with principal-bound Gate/Effect attribution. This does not implement end-user login, OIDC/SSO, or multi-tenancy. The browser console still needs loopback isolation or an authenticated reverse proxy; see docs/security/AEGISCORE_INTEGRATION.md.
 
 ## Verification architecture
 
@@ -100,4 +100,4 @@ The PostgreSQL test orchestrator runs against the committed migration chain with
 
 ## Current limits
 
-The implementation is a strong core/runtime reference, not yet a full production-readiness claim. Remaining qualification work includes authenticated identity/RBAC, secrets-management integration, HA/backups/disaster recovery, production observability and SLO evidence, deployment hardening, real-provider qualification, and capacity characterization.
+The implementation is a strong core/runtime reference, not yet a full production-readiness claim. Remaining qualification work includes human OIDC/SSO and resource-specific authorization, secrets-management integration, HA/backups/disaster recovery, production observability and SLO evidence, deployment hardening, real-provider qualification, and capacity characterization.

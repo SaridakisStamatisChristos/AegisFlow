@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { parseEffectId, parseGateId } from "@aegisflow/contracts";
 import { migrateUp } from "@aegisflow/persistence";
+import { createHash } from "node:crypto";
 import { AegisFlowClient } from "@aegisflow/sdk";
 import { Pool } from "pg";
 import { createControlServer, PostgresControlService } from "../dist/index.js";
@@ -9,7 +10,7 @@ import { createControlServer, PostgresControlService } from "../dist/index.js";
 const databaseUrl = process.env.DATABASE_URL;
 if (databaseUrl === undefined || databaseUrl.length === 0) throw new Error("DATABASE_URL is required for operator-view integration tests.");
 const pool = new Pool({ connectionString: databaseUrl, max: 8 });
-const service = new PostgresControlService(pool); const server = createControlServer(service); let client;
+const service = new PostgresControlService(pool); const apiToken = "aegisflowTestToken_xxxxxxxxxxxxxxxxxxxxx"; const server = createControlServer(service, [{ id: "operator", sha256: createHash("sha256").update(apiToken).digest("hex"), role: "admin" }]); let client;
 async function dropTestSchema() {
   await pool.query(`DROP TABLE IF EXISTS signals, api_idempotency, agent_tool_results, agent_provider_results, gate_resolutions, gate_protections, gates, effect_reconciliations, effects, claims, execution_events, attempts, stage_executions, executions, flow_versions, flows CASCADE;
     DROP FUNCTION IF EXISTS aegisflow_reject_signal_mutation(); DROP FUNCTION IF EXISTS aegisflow_validate_signal_execution();
@@ -21,7 +22,7 @@ async function dropTestSchema() {
 }
 function listen(s) { return new Promise((resolve, reject) => { s.once("error", reject); s.listen(0, "127.0.0.1", resolve); }); }
 function close(s) { return new Promise((resolve, reject) => s.close((error) => error === undefined ? resolve() : reject(error))); }
-test.before(async () => { await dropTestSchema(); await migrateUp(pool); await listen(server); const address = server.address(); if (address === null || typeof address === "string") throw new Error("Control API did not bind."); client = new AegisFlowClient({ baseUrl: `http://127.0.0.1:${address.port}` }); });
+test.before(async () => { await dropTestSchema(); await migrateUp(pool); await listen(server); const address = server.address(); if (address === null || typeof address === "string") throw new Error("Control API did not bind."); client = new AegisFlowClient({ baseUrl: `http://127.0.0.1:${address.port}`, apiToken }); });
 test.after(async () => { await close(server); await pool.end(); });
 
 test("operator read endpoints expose bounded durable state without bypassing ledgers", async () => {

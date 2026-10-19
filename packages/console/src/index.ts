@@ -44,8 +44,11 @@ export interface OperatorConsoleClient {
 }
 
 export interface OperatorConsoleOptions {
-  readonly client: OperatorConsoleClient;
+  readonly client?: OperatorConsoleClient;
   readonly csrfToken?: string;
+  /** Authenticated request hook; production console must configure this. */
+  readonly authorize?: (request: IncomingMessage, response: ServerResponse) =>
+    Promise<{ readonly client: OperatorConsoleClient; readonly csrfToken: string } | undefined>;
 }
 
 class ConsoleInputError extends Error {
@@ -130,7 +133,17 @@ function evidence(form: URLSearchParams): JsonObject | undefined {
 }
 
 function safeReturnTo(form: URLSearchParams, fallback: string): string {
-  const value = form.get("returnTo"); return value !== null && value.startsWith("/") && !value.startsWith("//") ? value : fallback;
+  const value = form.get("returnTo");
+  // WHATWG URL parsing treats backslashes as path separators for HTTP URLs:
+  // "/\\attacker.example" is an external network-path redirect in browsers.
+  if (value === null || !value.startsWith("/") || value.startsWith("//") ||
+      value.includes("\\") || /[\u0000-\u001f\u007f]/u.test(value)) return fallback;
+  try {
+    const base = "http://aegisflow.invalid";
+    return new URL(value, base).origin === base ? value : fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 function actionForm(token: string, action: string, returnTo: string): string {
@@ -146,9 +159,26 @@ function table(headers: readonly string[], rows: readonly string[]): string {
 }
 
 export function createOperatorConsoleServer(options: OperatorConsoleOptions): Server {
-  const token = options.csrfToken ?? randomUUID(); const client = options.client;
+  if (options.client === undefined && options.authorize === undefined) throw new Error("Operator console requires a client or an authenticated request hook.");
+  const testToken = options.csrfToken ?? randomUUID();
   return createServer(async (request, response) => {
     try {
+      // Browser requests must name a literal loopback authority. Without this,
+      // DNS rebinding could expose the local operator console to hostile origins.
+      const authority = request.headers.host;
+      if (typeof authority !== "string" ||
+          !/^(?:127\.0\.0\.1|\[::1\]):[0-9]{1,5}$/u.test(authority)) {
+        throw new ConsoleInputError("Operator console requires a literal loopback Host.");
+      }
+      if (request.method === "POST" && request.headers.origin !== undefined &&
+          request.headers.origin !== `http://${authority}`) {
+        throw new ConsoleInputError("Cross-origin operator submissions are not allowed.");
+      }
+      const approved = options.authorize === undefined ? undefined : await options.authorize(request, response);
+      if (options.authorize !== undefined && approved === undefined) return;
+      const client = approved?.client ?? options.client;
+      if (client === undefined) throw new Error("No authenticated console client.");
+      const token = approved?.csrfToken ?? testToken;
       const method = request.method ?? "GET"; const path = parts(request);
       if (method === "GET" && path.length === 0) {
         const [flows, executions, gates, effects] = await Promise.all([client.listFlows(), client.listExecutions(), client.listPendingGates(), client.listEffects()]);

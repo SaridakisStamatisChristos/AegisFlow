@@ -4,6 +4,8 @@
 
 AegisFlow is a standalone TypeScript/Node automation runtime focused on durable execution, explicit authority boundaries, recovery after failure, and auditable evidence.
 
+**Security:** The Control API now requires scoped, hashed service-token credentials and fails startup without them. The SDK and CLI can supply tokens; the browser console now requires OIDC human login and stays loopback-only. Its dedicated API credential must require verified human identity. See [human authentication](docs/security/HUMAN_AUTHENTICATION.md) and [security integration](docs/security/AEGISCORE_INTEGRATION.md).
+
 The design centers four properties:
 
 - **Governed:** reasoning does not automatically grant execution authority.

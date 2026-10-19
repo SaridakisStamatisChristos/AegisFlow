@@ -68,4 +68,4 @@ The API exposes explicit reconciliation for `RECONCILIATION_REQUIRED` Effects an
 
 ## Security and deployment boundary
 
-The current Control API does not include enterprise authentication, RBAC, SSO, or secrets management. Inputs and identifiers are validated, request bodies are bounded, SQL is parameterized, and malformed path encoding is classified as client input. Until authentication is added, expose the API only on a trusted network or behind an authenticated reverse proxy.
+The Control API now enforces instance-wide hashed bearer-token service identity and coarse server-side reader/operator/approver/reconciler/admin permissions. All /v1 operations require authentication; health endpoints remain public. Gate actor and Effect reconciler attribution must match the authenticated service principal. The SDK supports an apiToken and CLI/console read AEGISFLOW_API_TOKEN. See docs/security/AEGISCORE_INTEGRATION.md for credential provisioning, migration and restrictions. This is not human OIDC/SSO, tenant isolation, or browser-console authentication; protect console exposure independently.

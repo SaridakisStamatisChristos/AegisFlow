@@ -10,6 +10,8 @@ import { EffectLedgerError } from "@aegisflow/effects";
 import { GateLedgerError } from "@aegisflow/gates";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { ControlApiError } from "./errors.js";
+import { createApiAuthenticator, requiredCapability, type ApiCredential } from "./auth.js";
+import type { HumanActor } from "./human-auth.js";
 import {
   listOperatorEffects,
   listOperatorExecutions,
@@ -29,6 +31,7 @@ function sendJson(response: ServerResponse, status: number, body: unknown): void
   response.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
     "content-length": Buffer.byteLength(payload),
+    "cache-control": "no-store",
   });
   response.end(payload);
 }
@@ -72,10 +75,25 @@ function idempotencyKey(request: IncomingMessage): string {
 }
 
 function routePath(request: IncomingMessage): string[] {
-  const url = new URL(request.url ?? "/", "http://aegisflow.local");
+  const raw = (request.url ?? "/").split("?")[0] ?? "/";
+  // Validate before URL parsing, which would otherwise canonicalize dot segments
+  // and turn malformed encodings into privileged route aliases.
+  if (!raw.startsWith("/") || raw.includes("//") || raw.includes("#") ||
+      /%2f|%5c/iu.test(raw) ||
+      /(?:^|\/)(?:\.|%2e){1,2}(?=\/|$)/iu.test(raw)) {
+    throw new ControlApiError("INVALID_INPUT", "Noncanonical request path.");
+  }
   try {
-    return url.pathname.split("/").filter(Boolean).map((part) => decodeURIComponent(part));
+    return raw.split("/").filter(Boolean).map((part) => {
+      const decoded = decodeURIComponent(part);
+      if (decoded.includes("/") || decoded.includes("\\") ||
+          decoded === "." || decoded === "..") {
+        throw new ControlApiError("INVALID_INPUT", "Noncanonical request path.");
+      }
+      return decoded;
+    });
   } catch (error) {
+    if (error instanceof ControlApiError) throw error;
     throw new ControlApiError(
       "INVALID_INPUT",
       "Request path contains malformed percent-encoding.",
@@ -89,6 +107,8 @@ function statusFor(error: unknown): number {
     error instanceof ControlApiError || error instanceof GateLedgerError ||
     error instanceof EffectLedgerError || error instanceof ContractError
       ? error.code : undefined;
+  if (code === "UNAUTHENTICATED") return 401;
+  if (code === "FORBIDDEN") return 403;
   if (code === "NOT_FOUND") return 404;
   if (["CONFLICT", "IDEMPOTENCY_CONFLICT", "TERMINAL_EXECUTION", "KEY_CONFLICT", "STALE_STATE",
     "DECISION_CONFLICT", "PROTECTED", "IN_FLIGHT", "RECONCILIATION_REQUIRED", "KNOWN_FAILED"].includes(code ?? "")) return 409;
@@ -104,10 +124,18 @@ function errorBody(error: unknown): ErrorBody {
   return { error: { code, message } };
 }
 
-export function createControlServer(service: PostgresControlService): Server {
+export function createControlServer(
+  service: PostgresControlService, credentials: readonly ApiCredential[],
+  humanAuthenticator?: (request: IncomingMessage, principal: import("./auth.js").ApiPrincipal,
+    capability: import("./auth.js").ApiCapability) => Promise<HumanActor | undefined>,
+): Server {
+  if (credentials.some((item) => item.requiresHuman) && humanAuthenticator === undefined) {
+    throw new Error("Human-bound API credentials require a configured OIDC verifier.");
+  }
+  const authenticate = createApiAuthenticator(credentials);
   return createServer(async (request, response) => {
     try {
-      const method = request.method ?? "GET";
+      const method = request.method ?? "";
       const parts = routePath(request);
 
       if (method === "GET" && parts.length === 2 && parts[0] === "health" && parts[1] === "live") {
@@ -116,6 +144,11 @@ export function createControlServer(service: PostgresControlService): Server {
       if (method === "GET" && parts.length === 2 && parts[0] === "health" && parts[1] === "ready") {
         await service.pool.query("SELECT 1"); sendJson(response, 200, { status: "ready" }); return;
       }
+      const capability = requiredCapability(method, parts);
+      if (capability === undefined) throw new ControlApiError("NOT_FOUND", "Route not found.");
+      const principal = authenticate(request, capability);
+      const human = humanAuthenticator === undefined ? undefined : await humanAuthenticator(request, principal, capability);
+
       if (method === "GET" && parts.length === 2 && parts[0] === "v1" && parts[1] === "flows") {
         sendJson(response, 200, await listOperatorFlows(service.pool)); return;
       }
@@ -164,7 +197,8 @@ export function createControlServer(service: PostgresControlService): Server {
           const operation = parts[3];
           if (operation !== "approve" && operation !== "reject") { sendJson(response, 404, { error: { code: "NOT_FOUND", message: "Route not found." } }); return; }
           const body = requireRecord(await readJson(request));
-          const actorId = requireString(body.actorId, "actorId");
+          const actorId = human?.id ?? requireString(body.actorId, "actorId");
+          if (human === undefined && actorId !== principal.id) throw new ControlApiError("FORBIDDEN", "actorId must match authenticated identity.");
           sendJson(response, 200, await service.resolveGate(gateId, operation === "approve" ? "APPROVE" : "REJECT", actorId, body.evidence ?? {})); return;
         }
       }
@@ -179,7 +213,8 @@ export function createControlServer(service: PostgresControlService): Server {
           const decisionText = requireString(body.decision, "decision");
           if (decisionText !== "CONFIRMED_SUCCEEDED" && decisionText !== "CONFIRMED_FAILED") throw new ControlApiError("INVALID_INPUT", "decision must be CONFIRMED_SUCCEEDED or CONFIRMED_FAILED.");
           const decision: "CONFIRMED_SUCCEEDED" | "CONFIRMED_FAILED" = decisionText;
-          const reconciledBy = requireString(body.reconciledBy, "reconciledBy");
+          const reconciledBy = human?.id ?? requireString(body.reconciledBy, "reconciledBy");
+          if (human === undefined && reconciledBy !== principal.id) throw new ControlApiError("FORBIDDEN", "reconciledBy must match authenticated identity.");
           const externalReference = body.externalReference;
           if (externalReference !== undefined && typeof externalReference !== "string") throw new ControlApiError("INVALID_INPUT", "externalReference must be a string when supplied.");
           const input = externalReference === undefined ? { decision, reconciledBy } : { decision, reconciledBy, externalReference };
@@ -188,7 +223,9 @@ export function createControlServer(service: PostgresControlService): Server {
       }
       sendJson(response, 404, { error: { code: "NOT_FOUND", message: "Route not found." } });
     } catch (error) {
-      sendJson(response, statusFor(error), errorBody(error));
+      const status = statusFor(error);
+      if (status === 401) response.setHeader("www-authenticate", 'Bearer realm="aegisflow"');
+      sendJson(response, status, errorBody(error));
     }
   });
 }
