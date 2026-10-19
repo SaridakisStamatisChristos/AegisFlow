@@ -32,7 +32,7 @@ const service = new PostgresControlService(pool);
 const queue = new PostgresWorkerQueue(pool);
 const effects = new PostgresEffectLedger(pool);
 const apiToken = "aegisflowTestToken_xxxxxxxxxxxxxxxxxxxxx";
-const server = createControlServer(service, [{ id: "demo-operator", sha256: createHash("sha256").update(apiToken).digest("hex"), role: "admin" }]);
+const server = createControlServer(service, [{ id: "operator-demo", sha256: createHash("sha256").update(apiToken).digest("hex"), role: "admin" }]);
 let client;
 
 async function dropSchema() {
@@ -258,7 +258,7 @@ const scenarios = [
       assert.equal(approved.changed, true);
       assert.equal(approved.snapshot.gate.state, "APPROVED");
       assert.equal((await service.gates.getStageGateAuthorization(stageById(started, "after").id)).allowed, true);
-      const duplicate = await client.approveGate({ gateId, actorId: "operator-other", evidence: { overwrite: true } });
+      const duplicate = await client.approveGate({ gateId, actorId: "operator-demo", evidence: { overwrite: true } });
       assert.equal(duplicate.changed, false);
       assert.equal(duplicate.snapshot.resolution.actorId, "operator-demo");
       assert.deepEqual(duplicate.snapshot.resolution.evidence, { ticket: "INC-42" });
