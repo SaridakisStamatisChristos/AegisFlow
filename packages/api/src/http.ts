@@ -79,7 +79,7 @@ function routePath(request: IncomingMessage): string[] {
   // and turn malformed encodings into privileged route aliases.
   if (!raw.startsWith("/") || raw.includes("//") || raw.includes("#") ||
       /%2f|%5c/iu.test(raw) ||
-      /(?:^|\\/)(?:\\.|%2e){1,2}(?=\\/|$)/iu.test(raw)) {
+      /(?:^|\/)(?:\.|%2e){1,2}(?=\/|$)/iu.test(raw)) {
     throw new ControlApiError("INVALID_INPUT", "Noncanonical request path.");
   }
   try {

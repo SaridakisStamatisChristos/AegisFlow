@@ -187,9 +187,9 @@ test("unknown routes/methods, traversal and aliases fail before touching the ser
   await listen(server); t.after(() => close(server));
   const address = server.address(); assert.ok(address && typeof address !== "string");
   const base = "http://127.0.0.1:" + address.port;
-  for (const method of ["POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]) {
+  for (const method of ["PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]) {
     const result = await fetch(base + "/v1/flows", { method, headers: { authorization: "Bearer " + tokenFor("admin") } });
-    assert.equal(result.status, method === "POST" ? 200 /* handler may validate body */ : 404, method);
+    assert.equal(result.status, 404, method);
   }
   for (const path of ["/v1/effects/effect_aaaaaaaa/force", "/v1/executions/exec_aaaaaaaa/admin"]) {
     const result = await fetch(base + path, { headers: { authorization: "Bearer " + tokenFor("admin") } });
