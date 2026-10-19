@@ -15,6 +15,7 @@
   "files": ["dist"],
   "dependencies": {
     "@aegisflow/contracts": "0.1.0",
-    "@aegisflow/sdk": "0.1.0"
+    "@aegisflow/sdk": "0.1.0",
+    "openid-client": "6.8.8"
   }
 }
