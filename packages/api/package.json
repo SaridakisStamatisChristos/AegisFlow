@@ -19,6 +19,7 @@
     "@aegisflow/effects": "0.1.0",
     "@aegisflow/flows": "0.1.0",
     "@aegisflow/gates": "0.1.0",
+    "jose": "6.2.12",
     "pg": "8.23.1"
   }
 }
